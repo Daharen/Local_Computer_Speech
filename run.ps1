@@ -3,17 +3,43 @@ param(
     [switch]$SetupBackend,
     [switch]$InstallModel,
     [switch]$Healthcheck,
+    [switch]$BuildApp,
     [switch]$LaunchApp,
-    [switch]$AllSetup
+    [switch]$DetectQt,
+    [switch]$AllSetup,
+    [string]$QtRoot,
+    [string]$Qt6Dir
 )
 
 $ErrorActionPreference = 'Stop'
 
-if (-not ($SetupBackend -or $InstallModel -or $Healthcheck -or $LaunchApp -or $AllSetup)) {
+function Resolve-AppExecutable {
+    param(
+        [string]$RepoRoot
+    )
+
+    $buildDir = Join-Path $RepoRoot 'build'
+    $candidates = @(
+        (Join-Path $buildDir 'Release\LocalComputerSpeech.exe'),
+        (Join-Path $buildDir 'LocalComputerSpeech.exe')
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
+if (-not ($SetupBackend -or $InstallModel -or $Healthcheck -or $BuildApp -or $LaunchApp -or $DetectQt -or $AllSetup)) {
     Write-Host 'No mode selected. Use one or more of:'
-    Write-Host '  -SetupBackend  -InstallModel  -Healthcheck  -LaunchApp  -AllSetup'
+    Write-Host '  -SetupBackend  -InstallModel  -Healthcheck  -BuildApp  -LaunchApp  -DetectQt  -AllSetup'
     Write-Host 'Example full setup:'
     Write-Host '  .\run.ps1 -AllSetup'
+    Write-Host 'Build app explicitly:'
+    Write-Host '  .\run.ps1 -BuildApp -QtRoot "C:\Qt\6.8.0\msvc2022_64"'
     exit 0
 }
 
@@ -35,11 +61,21 @@ if ($Healthcheck) {
     & "$PSScriptRoot\scripts\healthcheck_backend.ps1"
 }
 
+if ($DetectQt) {
+    & "$PSScriptRoot\scripts\build_app.ps1" -QtRoot $QtRoot -Qt6Dir $Qt6Dir -DetectOnly
+}
+
+if ($BuildApp) {
+    & "$PSScriptRoot\scripts\build_app.ps1" -QtRoot $QtRoot -Qt6Dir $Qt6Dir
+}
+
 if ($LaunchApp) {
-    Write-Host 'Launching Qt app skeleton (build must already exist).'
-    $exe = Join-Path $PSScriptRoot 'build\LocalComputerSpeech.exe'
-    if (-not (Test-Path $exe)) {
-        throw "Executable not found at '$exe'. Configure+build first (CMake + Qt6)."
+    Write-Host 'Launching Qt app (build must already exist).'
+    $exe = Resolve-AppExecutable -RepoRoot $PSScriptRoot
+    if (-not $exe) {
+        throw "Executable not found. Expected one of: '$PSScriptRoot\build\Release\LocalComputerSpeech.exe' or '$PSScriptRoot\build\LocalComputerSpeech.exe'. Build first with '.\run.ps1 -BuildApp'."
     }
+
+    Write-Host "Starting: $exe"
     & $exe
 }
