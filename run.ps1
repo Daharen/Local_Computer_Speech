@@ -12,6 +12,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'scripts\qt_detection.ps1')
 
 function Resolve-AppExecutable {
     param(
@@ -75,6 +76,19 @@ if ($LaunchApp) {
     if (-not $exe) {
         throw "Executable not found. Expected one of: '$PSScriptRoot\build\Release\LocalComputerSpeech.exe' or '$PSScriptRoot\build\LocalComputerSpeech.exe'. Build first with '.\run.ps1 -BuildApp'."
     }
+
+    $qt = Resolve-QtFromInputs -InputQtRoot $QtRoot -InputQt6Dir $Qt6Dir
+    if (-not $qt.QtRoot) {
+        throw "Detected Qt6_DIR '$($qt.Qt6Dir)' but could not derive a Qt root/bin path. Provide -QtRoot explicitly (example: C:\Qt\6.8.0\msvc2022_64)."
+    }
+    $qtBin = Join-Path $qt.QtRoot 'bin'
+    if (-not (Test-Path $qtBin)) {
+        throw "Qt bin directory was not found at '$qtBin'."
+    }
+
+    Write-Host "Qt detection source : $($qt.Source)"
+    Write-Host "Qt runtime bin      : $qtBin"
+    $env:PATH = "$qtBin;$env:PATH"
 
     Write-Host "Starting: $exe"
     & $exe

@@ -38,6 +38,8 @@ Accepted path inputs:
 - `$env:CMAKE_PREFIX_PATH`
 - `C:\Qt\*\msvc2022_64`
 
+`run.ps1 -LaunchApp` now uses the same Qt detection and prepends the detected Qt `bin` directory to `PATH` for that process automatically, so manual PATH editing is no longer required for normal launches.
+
 ## Initial Backend Model
 
 - Tokenizer: `Qwen/Qwen3-TTS-Tokenizer-12Hz`
