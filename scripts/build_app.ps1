@@ -19,6 +19,22 @@ function Split-PathList {
     return $Value -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
 }
 
+function Resolve-ExistingPath {
+    param(
+        [string]$Path
+    )
+
+    if (-not $Path) {
+        return $null
+    }
+
+    try {
+        return (Resolve-Path -Path $Path -ErrorAction Stop).Path
+    } catch {
+        return $null
+    }
+}
+
 function Resolve-QtRootFromQt6Dir {
     param(
         [string]$CandidateQt6Dir
@@ -28,7 +44,7 @@ function Resolve-QtRootFromQt6Dir {
         return $null
     }
 
-    $resolvedQt6Dir = (Resolve-Path -Path $CandidateQt6Dir -ErrorAction SilentlyContinue)?.Path
+    $resolvedQt6Dir = Resolve-ExistingPath -Path $CandidateQt6Dir
     if (-not $resolvedQt6Dir) {
         return $null
     }
@@ -43,7 +59,7 @@ function Resolve-QtRootFromQt6Dir {
         return $null
     }
 
-    $resolvedQtRoot = (Resolve-Path -Path $qtRoot -ErrorAction SilentlyContinue)?.Path
+    $resolvedQtRoot = Resolve-ExistingPath -Path $qtRoot
     return $resolvedQtRoot
 }
 
@@ -55,7 +71,7 @@ function Resolve-QtFromInputs {
 
     $explicitRoot = $null
     if ($InputQtRoot) {
-        $explicitRoot = (Resolve-Path -Path $InputQtRoot -ErrorAction SilentlyContinue)?.Path
+        $explicitRoot = Resolve-ExistingPath -Path $InputQtRoot
         if (-not $explicitRoot) {
             throw "QtRoot path not found: '$InputQtRoot'"
         }
@@ -79,7 +95,7 @@ function Resolve-QtFromInputs {
 
     $explicitQt6Dir = $null
     if ($InputQt6Dir) {
-        $explicitQt6Dir = (Resolve-Path -Path $InputQt6Dir -ErrorAction SilentlyContinue)?.Path
+        $explicitQt6Dir = Resolve-ExistingPath -Path $InputQt6Dir
         if (-not $explicitQt6Dir) {
             throw "Qt6Dir path not found: '$InputQt6Dir'"
         }
@@ -124,7 +140,7 @@ function Resolve-QtFromInputs {
 
     foreach ($candidate in $candidates) {
         if ($candidate.Kind -eq 'Qt6Dir') {
-            $resolved = (Resolve-Path -Path $candidate.Value -ErrorAction SilentlyContinue)?.Path
+            $resolved = Resolve-ExistingPath -Path $candidate.Value
             if (-not $resolved) { continue }
             if (-not (Test-Path (Join-Path $resolved 'Qt6Config.cmake'))) { continue }
             $root = Resolve-QtRootFromQt6Dir -CandidateQt6Dir $resolved
@@ -138,7 +154,7 @@ function Resolve-QtFromInputs {
         }
 
         if ($candidate.Kind -eq 'QtRoot') {
-            $resolved = (Resolve-Path -Path $candidate.Value -ErrorAction SilentlyContinue)?.Path
+            $resolved = Resolve-ExistingPath -Path $candidate.Value
             if (-not $resolved) { continue }
             $qt6Dir = Join-Path $resolved 'lib\cmake\Qt6'
             if (-not (Test-Path (Join-Path $qt6Dir 'Qt6Config.cmake'))) { continue }
