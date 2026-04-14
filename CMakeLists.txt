@@ -29,6 +29,10 @@ target_link_libraries(LocalComputerSpeech PRIVATE
     Qt6::Widgets
 )
 
+target_include_directories(LocalComputerSpeech PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
 target_compile_definitions(LocalComputerSpeech PRIVATE
     QT_NO_KEYWORDS
 )
