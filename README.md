@@ -23,6 +23,21 @@ The app and scripts consume wrapper-provided env vars:
 - `LOCAL_COMPUTER_SPEECH_REPO_ROOT`
 - `LOCAL_COMPUTER_SPEECH_LARGE_DATA_ROOT`
 
+## Qt Prerequisite (App Build)
+
+Qt6 desktop development for **MSVC 2022 x64** is required to build the app.
+
+Accepted path inputs:
+
+- Qt root: `C:\Qt\6.8.0\msvc2022_64`
+- Qt6_DIR: `C:\Qt\6.8.0\msvc2022_64\lib\cmake\Qt6`
+
+`run.ps1 -BuildApp` supports either `-QtRoot` or `-Qt6Dir`, and can also auto-discover Qt from:
+
+- `$env:Qt6_DIR`
+- `$env:CMAKE_PREFIX_PATH`
+- `C:\Qt\*\msvc2022_64`
+
 ## Initial Backend Model
 
 - Tokenizer: `Qwen/Qwen3-TTS-Tokenizer-12Hz`
@@ -45,15 +60,22 @@ From repo root:
    - `./run.ps1 -InstallModel`
 3. Backend healthcheck
    - `./run.ps1 -Healthcheck`
-4. Build Qt app (example)
-   - `cmake -S . -B build`
-   - `cmake --build build --config Release`
+4. Build Qt app (explicit)
+   - `./run.ps1 -BuildApp -QtRoot "C:\Qt\6.x.x\msvc2022_64"`
+   - or: `./run.ps1 -BuildApp -Qt6Dir "C:\Qt\6.x.x\msvc2022_64\lib\cmake\Qt6"`
+   - optional detect-only: `./run.ps1 -DetectQt`
 5. Launch app
    - `./run.ps1 -LaunchApp`
 
 Convenience setup path:
 
 - `./run.ps1 -AllSetup`
+
+Intended operator flow:
+
+1. `./run.ps1 -AllSetup`
+2. `./run.ps1 -BuildApp -QtRoot "<installed qt root>"` (or auto-discovery)
+3. `./run.ps1 -LaunchApp`
 
 ## Launch Sequence
 
