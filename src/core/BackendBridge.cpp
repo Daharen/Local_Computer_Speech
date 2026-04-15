@@ -74,7 +74,7 @@ void BackendBridge::finishWithError(const QString& error) {
     SynthResult result;
     result.ok = false;
     result.error = error;
-    emit synthesisCompleted(result);
+    Q_EMIT synthesisCompleted(result);
 }
 
 bool BackendBridge::startSynthesis(const QString& text) {
@@ -193,7 +193,7 @@ bool BackendBridge::startSynthesis(const QString& text) {
                     if (result.error.isEmpty()) {
                         result.error = "Backend reported synthesis failure with no error message.";
                     }
-                    emit synthesisCompleted(result);
+                    Q_EMIT synthesisCompleted(result);
                     return;
                 }
 
@@ -202,15 +202,15 @@ bool BackendBridge::startSynthesis(const QString& text) {
                     result.ok = false;
                     result.error = QStringLiteral("Backend reported success but output file is missing: %1")
                                        .arg(expectedPath);
-                    emit synthesisCompleted(result);
+                    Q_EMIT synthesisCompleted(result);
                     return;
                 }
 
                 result.outputPath = QDir::toNativeSeparators(expectedPath);
-                emit synthesisCompleted(result);
+                Q_EMIT synthesisCompleted(result);
             });
 
-    emit synthesisStarted();
+    Q_EMIT synthesisStarted();
 
     const QStringList args = {
         "-m",
