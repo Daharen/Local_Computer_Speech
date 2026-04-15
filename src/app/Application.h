@@ -4,6 +4,7 @@
 
 namespace lcs {
 
+class BackendBridge;
 class MainWindow;
 class TrayController;
 
@@ -14,6 +15,7 @@ public:
 
 private:
     QApplication m_qtApp;
+    BackendBridge* m_backendBridge;
     MainWindow* m_mainWindow;
     TrayController* m_trayController;
 };

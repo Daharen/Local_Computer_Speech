@@ -19,6 +19,9 @@ struct RuntimePaths {
 
     QString tokenizerPath;
     QString modelPath;
+    QString backendPackageRoot;
+    QString backendCliPath;
+    QString backendPythonExe;
 };
 
 class PathResolver {

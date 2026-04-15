@@ -6,6 +6,7 @@ param(
     [switch]$BuildApp,
     [switch]$LaunchApp,
     [switch]$DetectQt,
+    [switch]$BackendSynthSmoke,
     [switch]$AllSetup,
     [string]$QtRoot,
     [string]$Qt6Dir
@@ -34,9 +35,9 @@ function Resolve-AppExecutable {
     return $null
 }
 
-if (-not ($SetupBackend -or $InstallModel -or $Healthcheck -or $BuildApp -or $LaunchApp -or $DetectQt -or $AllSetup)) {
+if (-not ($SetupBackend -or $InstallModel -or $Healthcheck -or $BuildApp -or $LaunchApp -or $DetectQt -or $BackendSynthSmoke -or $AllSetup)) {
     Write-Host 'No mode selected. Use one or more of:'
-    Write-Host '  -SetupBackend  -InstallModel  -Healthcheck  -BuildApp  -LaunchApp  -DetectQt  -AllSetup'
+    Write-Host '  -SetupBackend  -InstallModel  -Healthcheck  -BuildApp  -LaunchApp  -DetectQt  -BackendSynthSmoke  -AllSetup'
     Write-Host 'Example full setup:'
     Write-Host '  .\run.ps1 -AllSetup'
     Write-Host 'Build app explicitly:'
@@ -68,6 +69,42 @@ if ($DetectQt) {
 
 if ($BuildApp) {
     & "$PSScriptRoot\scripts\build_app.ps1" -QtRoot $QtRoot -Qt6Dir $Qt6Dir
+}
+
+
+if ($BackendSynthSmoke) {
+    $largeDataRoot = if ($env:LOCAL_COMPUTER_SPEECH_LARGE_DATA_ROOT -and $env:LOCAL_COMPUTER_SPEECH_LARGE_DATA_ROOT.Trim().Length -gt 0) {
+        $env:LOCAL_COMPUTER_SPEECH_LARGE_DATA_ROOT
+    } else {
+        'F:\My_Programs\Local_Computer_Speech_Large_Data'
+    }
+
+    $venvPython = Join-Path $largeDataRoot 'python_env\Scripts\python.exe'
+    if (-not (Test-Path $venvPython)) {
+        throw "Backend python env missing at $venvPython. Run .\run.ps1 -SetupBackend first."
+    }
+
+    $runtimeRoot = Join-Path $largeDataRoot 'runtime\requests'
+    $outputRoot = Join-Path $largeDataRoot 'output'
+    New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+
+    $stamp = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
+    $requestJson = Join-Path $runtimeRoot ("smoke_request_{0}.json" -f $stamp)
+    $outputWav = Join-Path $outputRoot ("tts_smoke_{0}.wav" -f $stamp)
+
+    $payload = @{
+        text = 'Backend smoke test for Local Computer Speech.'
+        output_path = $outputWav
+        language = 'English'
+        speaker = 'Ryan'
+        instruct = ''
+    }
+    $payload | ConvertTo-Json | Set-Content -Path $requestJson -Encoding UTF8
+
+    $env:PYTHONPATH = Join-Path $PSScriptRoot 'backend'
+    & $venvPython -m local_computer_speech_backend.cli synth --request-json $requestJson
+    exit $LASTEXITCODE
 }
 
 if ($LaunchApp) {
