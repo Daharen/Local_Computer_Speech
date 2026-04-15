@@ -29,6 +29,7 @@ public:
     bool isSynthesisInProgress() const;
     bool startSynthesis(const QString& text);
 
+// QT_NO_KEYWORDS is enabled project-wide, so use macro-safe Qt signal syntax.
 Q_SIGNALS:
     void synthesisStarted();
     void synthesisCompleted(const lcs::SynthResult& result);
