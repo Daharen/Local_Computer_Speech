@@ -29,7 +29,7 @@ public:
     bool isSynthesisInProgress() const;
     bool startSynthesis(const QString& text);
 
-signals:
+Q_SIGNALS:
     void synthesisStarted();
     void synthesisCompleted(const lcs::SynthResult& result);
 
