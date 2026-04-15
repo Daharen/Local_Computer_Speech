@@ -23,6 +23,12 @@ function Resolve-AppExecutable {
     $buildDir = Join-Path $RepoRoot 'build'
     $candidates = @(
         (Join-Path $buildDir 'Release\LocalComputerSpeech.exe'),
+        (Join-Path $buildDir 'RelWithDebInfo\LocalComputerSpeech.exe'),
+        (Join-Path $buildDir 'Debug\LocalComputerSpeech.exe'),
+        (Join-Path $buildDir 'MinSizeRel\LocalComputerSpeech.exe'),
+        (Join-Path $buildDir 'src\Release\LocalComputerSpeech.exe'),
+        (Join-Path $buildDir 'src\RelWithDebInfo\LocalComputerSpeech.exe'),
+        (Join-Path $buildDir 'src\Debug\LocalComputerSpeech.exe'),
         (Join-Path $buildDir 'LocalComputerSpeech.exe')
     )
 
@@ -30,6 +36,12 @@ function Resolve-AppExecutable {
         if (Test-Path $candidate) {
             return $candidate
         }
+    }
+
+    $recursiveHit = Get-ChildItem -Path $buildDir -Filter 'LocalComputerSpeech.exe' -File -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($recursiveHit) {
+        return $recursiveHit.FullName
     }
 
     return $null
@@ -111,7 +123,7 @@ if ($LaunchApp) {
     Write-Host 'Launching Qt app (build must already exist).'
     $exe = Resolve-AppExecutable -RepoRoot $PSScriptRoot
     if (-not $exe) {
-        throw "Executable not found. Expected one of: '$PSScriptRoot\build\Release\LocalComputerSpeech.exe' or '$PSScriptRoot\build\LocalComputerSpeech.exe'. Build first with '.\run.ps1 -BuildApp'."
+        throw "Executable not found under '$PSScriptRoot\build'. Build first with '.\run.ps1 -BuildApp' (Release), or verify your CMake output location."
     }
 
     $qt = Resolve-QtFromInputs -InputQtRoot $QtRoot -InputQt6Dir $Qt6Dir
