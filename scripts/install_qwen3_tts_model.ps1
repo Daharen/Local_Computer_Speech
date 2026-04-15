@@ -41,6 +41,12 @@ print("Model install complete.")
 
 $script = $script.Replace('__TARGET_ROOT__', $targetQwenRoot.Replace('\\', '\\\\'))
 
-& $venvPython -c $script
+$tempScriptPath = Join-Path $largeDataRoot 'temp\install_qwen3_tts_model.py'
+$script | Set-Content -Path $tempScriptPath -Encoding UTF8
+
+& $venvPython $tempScriptPath
+if ($LASTEXITCODE -ne 0) {
+    throw "Model install failed with exit code $LASTEXITCODE while running $tempScriptPath."
+}
 
 Write-Host "Installed tokenizer+model under $targetQwenRoot"

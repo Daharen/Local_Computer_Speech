@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QStandardPaths>
 #include <QUuid>
 
 #include <memory>
@@ -31,6 +32,10 @@ QByteArray findJsonPayload(const QString& stdoutText) {
     }
 
     return {};
+}
+
+bool hasSoxExecutable() {
+    return !QStandardPaths::findExecutable(QStringLiteral("sox")).isEmpty();
 }
 } // namespace
 
@@ -55,6 +60,11 @@ QString BackendBridge::quickStatusSummary() const {
     if (!hasTokenizer || !hasModel) {
         return QStringLiteral(
             "Model assets missing. Run run.ps1 -InstallModel to install tokenizer + model into large-data root.");
+    }
+
+    if (!hasSoxExecutable()) {
+        return QStringLiteral(
+            "SoX executable not found on PATH. Install SoX and reopen the app before synthesizing.");
     }
 
     return QStringLiteral(
@@ -93,6 +103,12 @@ bool BackendBridge::startSynthesis(const QString& text) {
     if (!QFileInfo::exists(paths.backendPythonExe)) {
         finishWithError(
             QStringLiteral("Backend Python executable not found at: %1").arg(paths.backendPythonExe));
+        return false;
+    }
+
+    if (!hasSoxExecutable()) {
+        finishWithError(
+            "SoX executable not found on PATH. Install SoX and reopen the app before synthesizing.");
         return false;
     }
 
