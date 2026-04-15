@@ -15,9 +15,9 @@ public:
 
 private:
     QApplication m_qtApp;
-    BackendBridge* m_backendBridge;
-    MainWindow* m_mainWindow;
-    TrayController* m_trayController;
+    BackendBridge* m_backendBridge = nullptr;
+    MainWindow* m_mainWindow = nullptr;
+    TrayController* m_trayController = nullptr;
 };
 
 } // namespace lcs

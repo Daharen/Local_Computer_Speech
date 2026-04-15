@@ -15,6 +15,12 @@ function Resolve-AppExecutable {
 
     $candidates = @(
         (Join-Path $BuildDir 'Release\LocalComputerSpeech.exe'),
+        (Join-Path $BuildDir 'RelWithDebInfo\LocalComputerSpeech.exe'),
+        (Join-Path $BuildDir 'Debug\LocalComputerSpeech.exe'),
+        (Join-Path $BuildDir 'MinSizeRel\LocalComputerSpeech.exe'),
+        (Join-Path $BuildDir 'src\Release\LocalComputerSpeech.exe'),
+        (Join-Path $BuildDir 'src\RelWithDebInfo\LocalComputerSpeech.exe'),
+        (Join-Path $BuildDir 'src\Debug\LocalComputerSpeech.exe'),
         (Join-Path $BuildDir 'LocalComputerSpeech.exe')
     )
 
@@ -22,6 +28,12 @@ function Resolve-AppExecutable {
         if (Test-Path $candidate) {
             return $candidate
         }
+    }
+
+    $recursiveHit = Get-ChildItem -Path $BuildDir -Filter 'LocalComputerSpeech.exe' -File -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($recursiveHit) {
+        return $recursiveHit.FullName
     }
 
     return $null
@@ -58,7 +70,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $exe = Resolve-AppExecutable -BuildDir $buildDir
 if (-not $exe) {
-    throw "Build completed, but LocalComputerSpeech.exe was not found in '$buildDir\\Release' or '$buildDir'."
+    throw "Build completed, but LocalComputerSpeech.exe was not found under '$buildDir'."
 }
 
 Write-Host "App build complete: $exe"
