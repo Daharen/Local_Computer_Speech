@@ -98,19 +98,6 @@ def _normalize_generation_output(generation):
     return audio, sample_rate
 
 
-def _is_dtype_compatibility_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    if "dtype" not in message:
-        return False
-
-    keyword_or_deprecation_markers = (
-        "deprecated",
-        "unexpected keyword",
-        "keyword argument",
-    )
-    return any(marker in message for marker in keyword_or_deprecation_markers)
-
-
 def cmd_synth_request(request_json: str) -> int:
     start = time.perf_counter()
     paths = ensure_runtime_dirs()
@@ -206,7 +193,7 @@ def cmd_synth_request(request_json: str) -> int:
         torch_dtype = torch.float16 if dtype_name == "float16" else torch.float32
 
         load_kwargs = {
-            "dtype": torch_dtype,
+            "torch_dtype": torch_dtype,
             "trust_remote_code": True,
             "local_files_only": True,
         }
@@ -218,26 +205,11 @@ def cmd_synth_request(request_json: str) -> int:
             load_kwargs["device_map"] = None
             resolved_device = "cpu"
 
-        model_path = str(paths.model_dir)
-        tokenizer_path = str(paths.tokenizer_dir)
-
-        try:
-            model = Qwen3TTSModel.from_pretrained(
-                model_path,
-                tokenizer_path=tokenizer_path,
-                **load_kwargs,
-            )
-        except Exception as exc:
-            if not _is_dtype_compatibility_error(exc):
-                raise
-
-            fallback_kwargs = dict(load_kwargs)
-            fallback_kwargs["torch_dtype"] = fallback_kwargs.pop("dtype")
-            model = Qwen3TTSModel.from_pretrained(
-                model_path,
-                tokenizer_path=tokenizer_path,
-                **fallback_kwargs,
-            )
+        model = Qwen3TTSModel.from_pretrained(
+            str(paths.model_dir),
+            tokenizer_path=str(paths.tokenizer_dir),
+            **load_kwargs,
+        )
 
         generation = model.generate_custom_voice(
             text=text,
