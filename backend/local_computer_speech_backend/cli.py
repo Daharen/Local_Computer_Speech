@@ -44,8 +44,6 @@ def _emit_synth_response(
     language: str,
     elapsed_ms: int,
     device: str,
-    attention_backend: str,
-    torch_version: str,
     error: str,
 ) -> int:
     payload = {
@@ -56,8 +54,6 @@ def _emit_synth_response(
         "language": language,
         "elapsed_ms": elapsed_ms,
         "device": device,
-        "attention_backend": attention_backend,
-        "torch_version": torch_version,
         "error": error,
     }
     print(json.dumps(payload, ensure_ascii=False))
@@ -144,8 +140,6 @@ def cmd_synth_request(request_json: str) -> int:
             language="English",
             elapsed_ms=0,
             device="",
-            attention_backend="standard",
-            torch_version="",
             error=f"Request JSON file does not exist: {request_path}",
         )
 
@@ -160,8 +154,6 @@ def cmd_synth_request(request_json: str) -> int:
             language="English",
             elapsed_ms=0,
             device="",
-            attention_backend="standard",
-            torch_version="",
             error=f"Failed to read request JSON: {exc}",
         )
 
@@ -180,8 +172,6 @@ def cmd_synth_request(request_json: str) -> int:
             language=language,
             elapsed_ms=0,
             device="",
-            attention_backend="standard",
-            torch_version="",
             error="Input text is empty after trimming.",
         )
 
@@ -194,8 +184,6 @@ def cmd_synth_request(request_json: str) -> int:
             language=language,
             elapsed_ms=0,
             device="",
-            attention_backend="standard",
-            torch_version="",
             error="output_path is required in request JSON.",
         )
 
@@ -214,8 +202,6 @@ def cmd_synth_request(request_json: str) -> int:
             language=language,
             elapsed_ms=0,
             device="",
-            attention_backend="standard",
-            torch_version="",
             error=(
                 "Model assets are missing. Run run.ps1 -InstallModel to install tokenizer and model into "
                 "LOCAL_COMPUTER_SPEECH_LARGE_DATA_ROOT."
@@ -295,8 +281,6 @@ def cmd_synth_request(request_json: str) -> int:
             language=language,
             elapsed_ms=elapsed_ms,
             device=resolved_device,
-            attention_backend=str(runtime_profile.get("attention_backend", "standard")),
-            torch_version=str(runtime_profile.get("torch_version") or ""),
             error="",
         )
     except Exception as exc:
@@ -309,8 +293,6 @@ def cmd_synth_request(request_json: str) -> int:
             language=language,
             elapsed_ms=elapsed_ms,
             device="",
-            attention_backend=str(runtime_profile.get("attention_backend", "standard")),
-            torch_version=str(runtime_profile.get("torch_version") or ""),
             error=f"Synthesis failed: {exc}",
         )
 
