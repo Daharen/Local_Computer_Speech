@@ -15,12 +15,17 @@
 #include <QTextStream>
 #include <QUrl>
 
+#include <array>
+
 namespace {
 
 constexpr auto kPinnedSoxVersion = "14.4.2";
 constexpr auto kPinnedSoxPackageUrl =
     "https://downloads.sourceforge.net/project/sox/sox/14.4.2/sox-14-4-2-win32.zip";
-constexpr auto kPinnedSoxSha256 = "cbd670e723e8f04ff9a32f221decb51a0a056a0ebe315536579b5d5e5b2fe048";
+constexpr std::array<const char*, 2> kPinnedSoxSha256Allowlist = {
+    "cbd670e723e8f04ff9a32f221decb51a0a056a0ebe315536579b5d5e5b2fe048",
+    "e6953e3007c13a40f64cfc448de8dce6619894487c8e7716965d2ad0f1bc349",
+};
 
 QString joinPath(const QString& left, const QString& right) {
     return QDir(left).filePath(right);
@@ -179,6 +184,10 @@ QString findSoxExeRecursively(const QString& rootDir) {
     return {};
 }
 
+QString formatHashAllowlist(const QStringList& hashes) {
+    return hashes.join(", ");
+}
+
 } // namespace
 
 namespace lcs {
@@ -200,8 +209,21 @@ QString SoxInstaller::pinnedPackageUrl() {
     return QString::fromLatin1(kPinnedSoxPackageUrl);
 }
 
-QString SoxInstaller::pinnedPackageSha256() {
-    return QString::fromLatin1(kPinnedSoxSha256);
+QStringList SoxInstaller::pinnedPackageSha256Allowlist() {
+    QStringList hashes;
+    hashes.reserve(static_cast<qsizetype>(kPinnedSoxSha256Allowlist.size()));
+    for (const auto* hash : kPinnedSoxSha256Allowlist) {
+        hashes.append(QString::fromLatin1(hash));
+    }
+    return hashes;
+}
+
+bool SoxInstaller::isPinnedPackageSha256Accepted(const QString& sha256) {
+    const QString normalized = sha256.trimmed().toLower();
+    if (normalized.isEmpty()) {
+        return false;
+    }
+    return pinnedPackageSha256Allowlist().contains(normalized);
 }
 
 QString SoxInstaller::managedToolsRoot(const RuntimePaths& paths) {
@@ -314,16 +336,17 @@ InstallResult SoxInstaller::ensureSoxAvailable(const RuntimePaths& paths) const 
         return {false, {}, {}, error};
     }
 
-    if (computedHash != pinnedPackageSha256()) {
+    const QStringList acceptedHashes = pinnedPackageSha256Allowlist();
+    if (!isPinnedPackageSha256Accepted(computedHash)) {
         QFile::remove(archivePath);
         appendInstallerLog(paths,
-                           QStringLiteral("Checksum mismatch. expected=%1 actual=%2")
-                               .arg(pinnedPackageSha256(), computedHash));
+                           QStringLiteral("Checksum mismatch. url=%1 actual=%2 accepted=[%3]")
+                               .arg(pinnedPackageUrl(), computedHash, formatHashAllowlist(acceptedHashes)));
         return {false,
                 {},
                 {},
-                QStringLiteral("SoX package checksum mismatch. expected=%1 actual=%2")
-                    .arg(pinnedPackageSha256(), computedHash)};
+                QStringLiteral("SoX package checksum mismatch. actual=%1 accepted=[%2]")
+                    .arg(computedHash, formatHashAllowlist(acceptedHashes))};
     }
 
     if (!removeDirIfExists(extractRoot, error)) {

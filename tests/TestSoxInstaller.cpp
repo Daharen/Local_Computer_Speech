@@ -31,9 +31,13 @@ class TestSoxInstaller : public QObject {
 private Q_SLOTS:
     void probePrefersBundledThenSystemThenManaged();
     void managedPathResolutionUsesPinnedVersion();
+    void pinnedPackageHashAllowlistContainsKnownValues();
+    void acceptsFirstKnownPinnedPackageHash();
+    void acceptsSecondKnownPinnedPackageHash();
+    void rejectsUnknownPinnedPackageHash();
     void ensureSoxAlreadyInstalledPinnedVersion();
     void ensureSoxDownloadFailure();
-    void ensureSoxChecksumMismatch();
+    void ensureSoxChecksumMismatchIncludesActualAndAllowlist();
 };
 
 void TestSoxInstaller::probePrefersBundledThenSystemThenManaged() {
@@ -60,6 +64,28 @@ void TestSoxInstaller::managedPathResolutionUsesPinnedVersion() {
     QCOMPARE(SoxInstaller::managedVersionDir(paths),
              QDir(paths.largeDataRoot).filePath(QStringLiteral("tools/sox/%1").arg(SoxInstaller::pinnedVersion())));
     QCOMPARE(SoxInstaller::managedCurrentExe(paths), QDir(paths.largeDataRoot).filePath("tools/sox/current/sox.exe"));
+}
+
+void TestSoxInstaller::pinnedPackageHashAllowlistContainsKnownValues() {
+    const QStringList hashes = SoxInstaller::pinnedPackageSha256Allowlist();
+    QCOMPARE(hashes.size(), 2);
+    QVERIFY(hashes.contains("cbd670e723e8f04ff9a32f221decb51a0a056a0ebe315536579b5d5e5b2fe048"));
+    QVERIFY(hashes.contains("e6953e3007c13a40f64cfc448de8dce6619894487c8e7716965d2ad0f1bc349"));
+}
+
+void TestSoxInstaller::acceptsFirstKnownPinnedPackageHash() {
+    QVERIFY(SoxInstaller::isPinnedPackageSha256Accepted(
+        "cbd670e723e8f04ff9a32f221decb51a0a056a0ebe315536579b5d5e5b2fe048"));
+}
+
+void TestSoxInstaller::acceptsSecondKnownPinnedPackageHash() {
+    QVERIFY(SoxInstaller::isPinnedPackageSha256Accepted(
+        "e6953e3007c13a40f64cfc448de8dce6619894487c8e7716965d2ad0f1bc349"));
+}
+
+void TestSoxInstaller::rejectsUnknownPinnedPackageHash() {
+    QVERIFY(!SoxInstaller::isPinnedPackageSha256Accepted(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
 }
 
 void TestSoxInstaller::ensureSoxAlreadyInstalledPinnedVersion() {
@@ -97,7 +123,7 @@ void TestSoxInstaller::ensureSoxDownloadFailure() {
 #endif
 }
 
-void TestSoxInstaller::ensureSoxChecksumMismatch() {
+void TestSoxInstaller::ensureSoxChecksumMismatchIncludesActualAndAllowlist() {
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
     const RuntimePaths paths = makePaths(tmp.path());
@@ -119,6 +145,12 @@ void TestSoxInstaller::ensureSoxChecksumMismatch() {
 #ifdef Q_OS_WIN
     QVERIFY(!result.ok);
     QVERIFY(result.error.contains("checksum", Qt::CaseInsensitive));
+    QVERIFY(result.error.contains("actual=", Qt::CaseInsensitive));
+    QVERIFY(result.error.contains("accepted=[", Qt::CaseInsensitive));
+    QVERIFY(result.error.contains("cbd670e723e8f04ff9a32f221decb51a0a056a0ebe315536579b5d5e5b2fe048",
+                                  Qt::CaseInsensitive));
+    QVERIFY(result.error.contains("e6953e3007c13a40f64cfc448de8dce6619894487c8e7716965d2ad0f1bc349",
+                                  Qt::CaseInsensitive));
 #else
     QVERIFY(!result.ok);
     QVERIFY(result.error.contains("Windows only", Qt::CaseInsensitive));
