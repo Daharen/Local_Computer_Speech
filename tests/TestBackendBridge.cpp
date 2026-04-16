@@ -65,6 +65,7 @@ class TestBackendBridge : public QObject {
 
 private Q_SLOTS:
     void startSynthesisContinuesAfterInstallerSucceeds();
+    void nonZeroBackendExitIncludesBackendJsonError();
 };
 
 void TestBackendBridge::startSynthesisContinuesAfterInstallerSucceeds() {
@@ -104,6 +105,44 @@ void TestBackendBridge::startSynthesisContinuesAfterInstallerSucceeds() {
     const SynthResult result = args.at(0).value<SynthResult>();
     QVERIFY(result.ok);
     QVERIFY(QFileInfo::exists(result.outputPath));
+}
+
+
+void TestBackendBridge::nonZeroBackendExitIncludesBackendJsonError() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const RuntimePaths paths = makePaths(tmp.path());
+
+    qputenv("LOCAL_COMPUTER_SPEECH_PROJECT_ROOT", paths.projectRoot.toUtf8());
+    qputenv("LOCAL_COMPUTER_SPEECH_TOOLS_ROOT", paths.toolsRoot.toUtf8());
+    qputenv("LOCAL_COMPUTER_SPEECH_REPO_ROOT", paths.repoRoot.toUtf8());
+    qputenv("LOCAL_COMPUTER_SPEECH_LARGE_DATA_ROOT", paths.largeDataRoot.toUtf8());
+
+    QDir().mkpath(paths.tokenizerPath);
+    QDir().mkpath(paths.modelPath);
+    QDir().mkpath(paths.backendPackageRoot);
+
+    const QString fakeSox = QDir(paths.tempRoot).filePath("fake-sox/sox.exe");
+    writeExecutableScript(fakeSox, "#!/usr/bin/env bash\nexit 0\n");
+
+    const QByteArray backendScript =
+        "#!/usr/bin/env bash\n"
+        "echo \"{\\\"ok\\\":false,\\\"output_path\\\":\\\"\\\",\\\"sample_rate\\\":0,\\\"speaker\\\":\\\"Ryan\\\",\\\"language\\\":\\\"English\\\",\\\"elapsed_ms\\\":1,\\\"device\\\":\\\"\\\",\\\"error\\\":\\\"Synthesis failed: got an unexpected keyword argument 'dtype'\\\"}\"\n"
+        "exit 1\n";
+    writeExecutableScript(paths.backendPythonExe, backendScript);
+
+    auto installer = std::make_shared<FakeInstaller>(fakeSox);
+    BackendBridge bridge(installer);
+    QSignalSpy completedSpy(&bridge, &BackendBridge::synthesisCompleted);
+
+    QVERIFY(bridge.startSynthesis("hello world"));
+    QVERIFY(completedSpy.wait(5000));
+
+    const auto args = completedSpy.takeFirst();
+    const SynthResult result = args.at(0).value<SynthResult>();
+    QVERIFY(!result.ok);
+    QVERIFY(result.error.contains("non-zero exit (1)"));
+    QVERIFY(result.error.contains("unexpected keyword argument 'dtype'"));
 }
 
 } // namespace

@@ -96,6 +96,7 @@ Intended operator flow:
 - No hard requirement for `bf16`.
 - No hard requirement for FlashAttention-2.
 - Keep a clear seam for future attention backend optimization.
+- Backend model loading now uses `dtype` as the canonical Hugging Face/Qwen argument and includes a single compatibility retry with `torch_dtype` for older runtime stacks that reject/deprecate `dtype`.
 
 ## SoX Bootstrap Policy (Windows)
 
