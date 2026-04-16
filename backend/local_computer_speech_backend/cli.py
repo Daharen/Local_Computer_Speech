@@ -44,6 +44,8 @@ def _emit_synth_response(
     language: str,
     elapsed_ms: int,
     device: str,
+    attention_backend: str,
+    torch_version: str,
     error: str,
 ) -> int:
     payload = {
@@ -54,6 +56,8 @@ def _emit_synth_response(
         "language": language,
         "elapsed_ms": elapsed_ms,
         "device": device,
+        "attention_backend": attention_backend,
+        "torch_version": torch_version,
         "error": error,
     }
     print(json.dumps(payload, ensure_ascii=False))
@@ -126,6 +130,21 @@ def _is_tokenizer_path_compatibility_error(exc: Exception) -> bool:
     return any(marker in message for marker in keyword_or_deprecation_markers)
 
 
+def _is_attention_implementation_compatibility_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "attn_implementation" not in message and "flash_attention_2" not in message:
+        return False
+
+    keyword_or_deprecation_markers = (
+        "unexpected keyword",
+        "keyword argument",
+        "not supported",
+        "unknown",
+        "invalid",
+    )
+    return any(marker in message for marker in keyword_or_deprecation_markers)
+
+
 def cmd_synth_request(request_json: str) -> int:
     start = time.perf_counter()
     paths = ensure_runtime_dirs()
@@ -140,6 +159,8 @@ def cmd_synth_request(request_json: str) -> int:
             language="English",
             elapsed_ms=0,
             device="",
+            attention_backend="standard",
+            torch_version="",
             error=f"Request JSON file does not exist: {request_path}",
         )
 
@@ -154,6 +175,8 @@ def cmd_synth_request(request_json: str) -> int:
             language="English",
             elapsed_ms=0,
             device="",
+            attention_backend="standard",
+            torch_version="",
             error=f"Failed to read request JSON: {exc}",
         )
 
@@ -172,6 +195,8 @@ def cmd_synth_request(request_json: str) -> int:
             language=language,
             elapsed_ms=0,
             device="",
+            attention_backend="standard",
+            torch_version="",
             error="Input text is empty after trimming.",
         )
 
@@ -184,6 +209,8 @@ def cmd_synth_request(request_json: str) -> int:
             language=language,
             elapsed_ms=0,
             device="",
+            attention_backend="standard",
+            torch_version="",
             error="output_path is required in request JSON.",
         )
 
@@ -202,6 +229,8 @@ def cmd_synth_request(request_json: str) -> int:
             language=language,
             elapsed_ms=0,
             device="",
+            attention_backend="standard",
+            torch_version="",
             error=(
                 "Model assets are missing. Run run.ps1 -InstallModel to install tokenizer and model into "
                 "LOCAL_COMPUTER_SPEECH_LARGE_DATA_ROOT."
@@ -225,6 +254,8 @@ def cmd_synth_request(request_json: str) -> int:
             "trust_remote_code": True,
             "local_files_only": True,
         }
+        if runtime_profile.get("attention_backend") == "flash-attn":
+            load_kwargs["attn_implementation"] = "flash_attention_2"
 
         if device == "cuda" and torch.cuda.is_available():
             load_kwargs["device_map"] = "auto"
@@ -252,15 +283,23 @@ def cmd_synth_request(request_json: str) -> int:
                     **kwargs,
                 )
 
-        try:
-            model = _load_with_tokenizer_retry(**load_kwargs)
-        except Exception as exc:
-            if not _is_dtype_compatibility_error(exc):
-                raise
+        attempted_kwargs = dict(load_kwargs)
+        while True:
+            try:
+                model = _load_with_tokenizer_retry(**attempted_kwargs)
+                break
+            except Exception as exc:
+                if _is_dtype_compatibility_error(exc) and ("dtype" in attempted_kwargs):
+                    attempted_kwargs = dict(attempted_kwargs)
+                    attempted_kwargs["torch_dtype"] = attempted_kwargs.pop("dtype")
+                    continue
 
-            fallback_kwargs = dict(load_kwargs)
-            fallback_kwargs["torch_dtype"] = fallback_kwargs.pop("dtype")
-            model = _load_with_tokenizer_retry(**fallback_kwargs)
+                if _is_attention_implementation_compatibility_error(exc) and ("attn_implementation" in attempted_kwargs):
+                    attempted_kwargs = dict(attempted_kwargs)
+                    attempted_kwargs.pop("attn_implementation", None)
+                    continue
+
+                raise
 
         generation = model.generate_custom_voice(
             text=text,
@@ -281,6 +320,8 @@ def cmd_synth_request(request_json: str) -> int:
             language=language,
             elapsed_ms=elapsed_ms,
             device=resolved_device,
+            attention_backend=str(runtime_profile.get("attention_backend", "standard")),
+            torch_version=str(runtime_profile.get("torch_version") or ""),
             error="",
         )
     except Exception as exc:
@@ -293,6 +334,8 @@ def cmd_synth_request(request_json: str) -> int:
             language=language,
             elapsed_ms=elapsed_ms,
             device="",
+            attention_backend=str(runtime_profile.get("attention_backend", "standard")),
+            torch_version=str(runtime_profile.get("torch_version") or ""),
             error=f"Synthesis failed: {exc}",
         )
 
