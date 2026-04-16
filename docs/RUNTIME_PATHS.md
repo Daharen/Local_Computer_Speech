@@ -23,8 +23,6 @@ All mutable or large runtime assets live under `<LARGE_DATA_ROOT>`:
 - `runtime`
 - `output`
 - `temp`
-- `tools\sox\<version>\...` (managed pinned SoX payload)
-- `tools\sox\current\sox.exe` (stable managed pointer copy)
 
 ## Prohibited Placement
 
@@ -35,4 +33,3 @@ Do not place model files, venv, cache, or generated runtime artifacts under the 
 - Backend env creation is explicit: `run.ps1 -SetupBackend`
 - Model install is explicit: `run.ps1 -InstallModel`
 - Launch path never performs implicit model download.
-- Launch path may perform first-use SoX bootstrap during synthesis on Windows when SoX is absent.
