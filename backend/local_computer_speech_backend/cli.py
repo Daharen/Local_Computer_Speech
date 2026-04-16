@@ -111,6 +111,21 @@ def _is_dtype_compatibility_error(exc: Exception) -> bool:
     return any(marker in message for marker in keyword_or_deprecation_markers)
 
 
+def _is_tokenizer_path_compatibility_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "tokenizer_path" not in message:
+        return False
+
+    keyword_or_deprecation_markers = (
+        "deprecated",
+        "unexpected keyword",
+        "keyword argument",
+        "positional argument",
+        "signature",
+    )
+    return any(marker in message for marker in keyword_or_deprecation_markers)
+
+
 def cmd_synth_request(request_json: str) -> int:
     start = time.perf_counter()
     paths = ensure_runtime_dirs()
@@ -221,23 +236,31 @@ def cmd_synth_request(request_json: str) -> int:
         model_path = str(paths.model_dir)
         tokenizer_path = str(paths.tokenizer_dir)
 
+        def _load_with_tokenizer_retry(**kwargs):
+            try:
+                return Qwen3TTSModel.from_pretrained(
+                    model_path,
+                    tokenizer_path=tokenizer_path,
+                    **kwargs,
+                )
+            except Exception as exc:
+                if not _is_tokenizer_path_compatibility_error(exc):
+                    raise
+
+                return Qwen3TTSModel.from_pretrained(
+                    model_path,
+                    **kwargs,
+                )
+
         try:
-            model = Qwen3TTSModel.from_pretrained(
-                model_path,
-                tokenizer_path=tokenizer_path,
-                **load_kwargs,
-            )
+            model = _load_with_tokenizer_retry(**load_kwargs)
         except Exception as exc:
             if not _is_dtype_compatibility_error(exc):
                 raise
 
             fallback_kwargs = dict(load_kwargs)
             fallback_kwargs["torch_dtype"] = fallback_kwargs.pop("dtype")
-            model = Qwen3TTSModel.from_pretrained(
-                model_path,
-                tokenizer_path=tokenizer_path,
-                **fallback_kwargs,
-            )
+            model = _load_with_tokenizer_retry(**fallback_kwargs)
 
         generation = model.generate_custom_voice(
             text=text,

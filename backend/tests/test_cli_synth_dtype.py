@@ -19,18 +19,20 @@ class _FakeModel:
 
 class _FakeQwenModelClass:
     calls = []
-    first_error = None
+    errors_by_call_index = {}
 
     @classmethod
     def reset(cls) -> None:
         cls.calls = []
-        cls.first_error = None
+        cls.errors_by_call_index = {}
 
     @classmethod
     def from_pretrained(cls, model_path: str, **kwargs: object):
         cls.calls.append((model_path, kwargs))
-        if len(cls.calls) == 1 and cls.first_error is not None:
-            raise cls.first_error
+        call_index = len(cls.calls)
+        error = cls.errors_by_call_index.get(call_index)
+        if error is not None:
+            raise error
         return _FakeModel()
 
 
@@ -102,7 +104,9 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
         self.assertTrue(kwargs["trust_remote_code"])
 
     def test_retry_with_torch_dtype_on_dtype_kwarg_compatibility_error(self) -> None:
-        _FakeQwenModelClass.first_error = TypeError("got an unexpected keyword argument 'dtype'")
+        _FakeQwenModelClass.errors_by_call_index = {
+            1: TypeError("got an unexpected keyword argument 'dtype'"),
+        }
 
         rc, payload = self._run_synth()
 
@@ -118,7 +122,9 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
         self.assertNotIn("dtype", second_kwargs)
 
     def test_non_argument_errors_surface_as_synthesis_failure(self) -> None:
-        _FakeQwenModelClass.first_error = RuntimeError("GPU out of memory")
+        _FakeQwenModelClass.errors_by_call_index = {
+            1: RuntimeError("GPU out of memory"),
+        }
 
         rc, payload = self._run_synth()
 
@@ -126,6 +132,36 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("Synthesis failed", payload["error"])
         self.assertIn("GPU out of memory", payload["error"])
+        self.assertEqual(len(_FakeQwenModelClass.calls), 1)
+
+    def test_tokenizer_path_signature_error_retries_without_tokenizer_path(self) -> None:
+        _FakeQwenModelClass.errors_by_call_index = {
+            1: TypeError("from_pretrained() got an unexpected keyword argument 'tokenizer_path'"),
+        }
+
+        rc, payload = self._run_synth()
+
+        self.assertEqual(rc, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(_FakeQwenModelClass.calls), 2)
+
+        _, first_kwargs = _FakeQwenModelClass.calls[0]
+        _, second_kwargs = _FakeQwenModelClass.calls[1]
+        self.assertIn("tokenizer_path", first_kwargs)
+        self.assertNotIn("tokenizer_path", second_kwargs)
+        self.assertIn("dtype", second_kwargs)
+        self.assertNotIn("torch_dtype", second_kwargs)
+
+    def test_tokenizer_retry_only_on_signature_style_errors(self) -> None:
+        _FakeQwenModelClass.errors_by_call_index = {
+            1: RuntimeError("tokenizer_path file missing on disk"),
+        }
+
+        rc, payload = self._run_synth()
+
+        self.assertEqual(rc, 1)
+        self.assertFalse(payload["ok"])
+        self.assertIn("tokenizer_path file missing on disk", payload["error"])
         self.assertEqual(len(_FakeQwenModelClass.calls), 1)
 
     def test_bridge_json_contract_keys_remain_unchanged(self) -> None:

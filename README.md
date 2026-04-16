@@ -97,6 +97,7 @@ Intended operator flow:
 - No hard requirement for FlashAttention-2.
 - Keep a clear seam for future attention backend optimization.
 - Backend model loading now uses `dtype` as the canonical Hugging Face/Qwen argument and includes a single compatibility retry with `torch_dtype` for older runtime stacks that reject/deprecate `dtype`.
+- Backend synth loading also includes a narrow tokenizer-argument compatibility retry: if `tokenizer_path` is rejected as a signature/keyword mismatch, it retries once without that kwarg for mixed dependency stacks.
 
 ## SoX Bootstrap Policy (Windows)
 
