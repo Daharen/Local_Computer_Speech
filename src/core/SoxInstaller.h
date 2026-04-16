@@ -3,6 +3,7 @@
 #include "PathResolver.h"
 
 #include <QString>
+#include <QStringList>
 
 #include <functional>
 
@@ -37,7 +38,8 @@ public:
 
     static QString pinnedVersion();
     static QString pinnedPackageUrl();
-    static QString pinnedPackageSha256();
+    static QStringList pinnedPackageSha256Allowlist();
+    static bool isPinnedPackageSha256Accepted(const QString& sha256);
 
     static QString managedToolsRoot(const RuntimePaths& paths);
     static QString managedVersionDir(const RuntimePaths& paths);
