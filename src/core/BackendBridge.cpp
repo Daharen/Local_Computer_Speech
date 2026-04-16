@@ -1,7 +1,6 @@
 #include "BackendBridge.h"
 
 #include "PathResolver.h"
-#include "SoxInstaller.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -11,6 +10,7 @@
 #include <QJsonObject>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QStandardPaths>
 #include <QUuid>
 
 #include <memory>
@@ -34,21 +34,65 @@ QByteArray findJsonPayload(const QString& stdoutText) {
     return {};
 }
 
+struct SoxProbeResult {
+    bool available = false;
+    bool fromBundledPath = false;
+    QString executablePath;
+    QString sourceLabel;
+};
+
+QString bundledSoxInLargeDataRoot(const lcs::RuntimePaths& paths) {
+    return QDir(paths.largeDataRoot).filePath("tools/sox/sox.exe");
+}
+
+QString bundledSoxInRepoRoot(const lcs::RuntimePaths& paths) {
+    return QDir(paths.repoRoot).filePath("third_party/sox/sox.exe");
+}
+
+SoxProbeResult probeSoxExecutable(const lcs::RuntimePaths& paths) {
+    const QStringList bundledCandidates = {
+        bundledSoxInLargeDataRoot(paths),
+        bundledSoxInRepoRoot(paths),
+    };
+
+    for (const QString& candidate : bundledCandidates) {
+        const QFileInfo fileInfo(candidate);
+        if (fileInfo.exists() && fileInfo.isFile()) {
+            SoxProbeResult result;
+            result.available = true;
+            result.fromBundledPath = true;
+            result.executablePath = fileInfo.absoluteFilePath();
+            if (candidate == bundledCandidates[0]) {
+                result.sourceLabel = QStringLiteral("bundled (large-data root)");
+            } else {
+                result.sourceLabel = QStringLiteral("bundled (repo-local)");
+            }
+            return result;
+        }
+    }
+
+    const QString onPath = QStandardPaths::findExecutable(QStringLiteral("sox"));
+    if (!onPath.isEmpty()) {
+        SoxProbeResult result;
+        result.available = true;
+        result.executablePath = QDir::fromNativeSeparators(onPath);
+        result.sourceLabel = QStringLiteral("system PATH");
+        return result;
+    }
+
+    return {};
+}
 } // namespace
 
 namespace lcs {
 
-BackendBridge::BackendBridge(QObject* parent)
-    : BackendBridge(std::make_shared<SoxInstaller>(), parent) {}
-
-BackendBridge::BackendBridge(std::shared_ptr<SoxInstaller> soxInstaller, QObject* parent)
-    : QObject(parent), m_soxInstaller(std::move(soxInstaller)), m_process(nullptr) {
+BackendBridge::BackendBridge(QObject* parent) : QObject(parent), m_process(nullptr) {
     qRegisterMetaType<lcs::SynthResult>("lcs::SynthResult");
 }
 
 QString BackendBridge::quickStatusSummary() const {
     const auto paths = PathResolver::resolve();
-    const SoxProbeResult soxProbe = m_soxInstaller->probeExisting(paths);
+    const SoxProbeResult soxProbe = probeSoxExecutable(paths);
 
     const bool hasTokenizer = QFileInfo::exists(paths.tokenizerPath);
     const bool hasModel = QFileInfo::exists(paths.modelPath);
@@ -66,14 +110,13 @@ QString BackendBridge::quickStatusSummary() const {
 
     if (!soxProbe.available) {
         return QStringLiteral(
-            "SoX executable not currently available. The app can bootstrap managed SoX (%1) during synthesis on demand.")
-            .arg(SoxInstaller::pinnedVersion());
+            "SoX executable not found on PATH. Install SoX and reopen the app before synthesizing.");
     }
 
     return QStringLiteral(
                "Backend bridge ready: local model/tokenizer paths found in persistent large-data root. "
                "SoX source: %1.")
-        .arg(soxProbe.source);
+        .arg(soxProbe.sourceLabel);
 }
 
 bool BackendBridge::isSynthesisInProgress() const {
@@ -105,16 +148,16 @@ bool BackendBridge::startSynthesis(const QString& text) {
     }
 
     const auto paths = PathResolver::resolve();
+    const SoxProbeResult soxProbe = probeSoxExecutable(paths);
     if (!QFileInfo::exists(paths.backendPythonExe)) {
         finishWithError(
             QStringLiteral("Backend Python executable not found at: %1").arg(paths.backendPythonExe));
         return false;
     }
 
-    const InstallResult soxInstall = m_soxInstaller->ensureSoxAvailable(paths);
-
-    if (!soxInstall.ok) {
-        finishWithError(QStringLiteral("SoX bootstrap failed: %1").arg(soxInstall.error));
+    if (!soxProbe.available) {
+        finishWithError(
+            "SoX executable not found on PATH. Install SoX and reopen the app before synthesizing.");
         return false;
     }
 
@@ -153,12 +196,14 @@ bool BackendBridge::startSynthesis(const QString& text) {
     m_stderrBuffer.clear();
 
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    const QString soxDir = QFileInfo(soxInstall.soxExePath).absolutePath();
-    const QString existingPath = env.value("PATH");
-    if (existingPath.isEmpty()) {
-        env.insert("PATH", soxDir);
-    } else {
-        env.insert("PATH", soxDir + QDir::listSeparator() + existingPath);
+    if (soxProbe.fromBundledPath) {
+        const QString bundledSoxDir = QFileInfo(soxProbe.executablePath).absolutePath();
+        const QString existingPath = env.value("PATH");
+        if (existingPath.isEmpty()) {
+            env.insert("PATH", bundledSoxDir);
+        } else {
+            env.insert("PATH", bundledSoxDir + QDir::listSeparator() + existingPath);
+        }
     }
 
     const QString existingPyPath = env.value("PYTHONPATH");

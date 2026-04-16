@@ -4,13 +4,7 @@
 #include <QObject>
 #include <QString>
 
-#include <memory>
-
 class QProcess;
-
-namespace lcs {
-class SoxInstaller;
-}
 
 namespace lcs {
 
@@ -30,7 +24,6 @@ class BackendBridge : public QObject {
 
 public:
     explicit BackendBridge(QObject* parent = nullptr);
-    explicit BackendBridge(std::shared_ptr<SoxInstaller> soxInstaller, QObject* parent = nullptr);
 
     QString quickStatusSummary() const;
     bool isSynthesisInProgress() const;
@@ -45,7 +38,6 @@ private:
     void finishWithError(const QString& error);
     QString buildOutputFileName() const;
 
-    std::shared_ptr<SoxInstaller> m_soxInstaller;
     QProcess* m_process;
     QString m_stdoutBuffer;
     QString m_stderrBuffer;
