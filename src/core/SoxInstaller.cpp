@@ -20,7 +20,7 @@ namespace {
 constexpr auto kPinnedSoxVersion = "14.4.2";
 constexpr auto kPinnedSoxPackageUrl =
     "https://downloads.sourceforge.net/project/sox/sox/14.4.2/sox-14-4-2-win32.zip";
-constexpr auto kPinnedSoxSha256 = "31d47237959c53dbd5cbbd327a904eeb253e062d45b0bc51aef1937c29543d84";
+constexpr auto kPinnedSoxSha256 = "cbd670e723e8f04ff9a32f221decb51a0a056a0ebe315536579b5d5e5b2fe048";
 
 QString joinPath(const QString& left, const QString& right) {
     return QDir(left).filePath(right);
