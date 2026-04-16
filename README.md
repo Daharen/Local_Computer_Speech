@@ -97,6 +97,38 @@ Intended operator flow:
 - No hard requirement for FlashAttention-2.
 - Keep a clear seam for future attention backend optimization.
 
+## SoX Bootstrap Policy (Windows)
+
+- The app pins a deterministic SoX version (`14.4.2`) for managed bootstrap.
+- Probe precedence at runtime is:
+  1. Bundled SoX in large-data root (`<LARGE_DATA_ROOT>/tools/sox/sox.exe`)
+  2. Bundled SoX in repo-local third-party path (`<REPO_ROOT>/third_party/sox/sox.exe`)
+  3. System `PATH`
+  4. Managed install pointer (`<LARGE_DATA_ROOT>/tools/sox/current/sox.exe`)
+- If nothing is found, synthesis attempts an on-demand install (no process exit).
+- Managed install layout:
+  - Versioned payload: `<LARGE_DATA_ROOT>/tools/sox/<version>/...`
+  - Stable pointer copy: `<LARGE_DATA_ROOT>/tools/sox/current/sox.exe`
+- Package integrity is checked with a pinned SHA-256 before extraction.
+- Installer diagnostics are written to `<LARGE_DATA_ROOT>/logs/sox_installer.log`.
+
+### Offline / Proxy Failure Behavior
+
+- If SoX download fails (offline, proxy, firewall, TLS interception), synthesis returns a controlled error through the backend bridge result channel.
+- Remediation options:
+  1. Place a valid `sox.exe` in one of the bundled probe locations.
+  2. Install SoX system-wide and ensure it is discoverable on `PATH`.
+  3. Retry synthesis after connectivity/proxy policy is corrected.
+
+### Manual Verification on a Clean Machine
+
+1. Ensure no SoX binary is present in bundled locations and none on system `PATH`.
+2. Start the app and run one synthesis request.
+3. Confirm the first synthesis triggers SoX bootstrap and then continues.
+4. Verify files are created under `<LARGE_DATA_ROOT>/tools/sox/<version>/` and `.../current/`.
+5. Check `<LARGE_DATA_ROOT>/logs/sox_installer.log` for download/checksum/extract/install steps.
+6. Re-run synthesis and confirm the installer is idempotent (no reinstall when pinned version is already valid).
+
 ## Why a Python Backend Exists at All
 
 The selected initial TTS stack is currently exposed through Python tooling. Therefore this scaffold uses a thin Python worker bridge for model runtime access while maintaining a C++-owned application architecture.
