@@ -193,10 +193,32 @@ bool BackendBridge::startSynthesis(const QString& text) {
                 }
 
                 if (exitCode != 0) {
-                    finishWithError(
-                        QStringLiteral("Backend returned non-zero exit (%1): %2")
-                            .arg(exitCode)
-                            .arg(m_stderrBuffer.trimmed()));
+                    QString backendError;
+                    if (!jsonPayload.isEmpty() && parseError.error == QJsonParseError::NoError &&
+                        jsonDoc.isObject()) {
+                        backendError = jsonDoc.object().value("error").toString().trimmed();
+                    }
+
+                    const QString stderrText = m_stderrBuffer.trimmed();
+                    if (!backendError.isEmpty()) {
+                        if (stderrText.isEmpty()) {
+                            finishWithError(
+                                QStringLiteral("Backend returned non-zero exit (%1): %2")
+                                    .arg(exitCode)
+                                    .arg(backendError));
+                        } else {
+                            finishWithError(
+                                QStringLiteral("Backend returned non-zero exit (%1): %2 (stderr: %3)")
+                                    .arg(exitCode)
+                                    .arg(backendError)
+                                    .arg(stderrText));
+                        }
+                    } else {
+                        finishWithError(
+                            QStringLiteral("Backend returned non-zero exit (%1): %2")
+                                .arg(exitCode)
+                                .arg(stderrText));
+                    }
                     return;
                 }
 
