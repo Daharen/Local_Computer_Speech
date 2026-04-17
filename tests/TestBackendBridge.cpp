@@ -27,6 +27,7 @@ RuntimePaths makePaths(const QString& root) {
     p.tempRoot = QDir(p.largeDataRoot).filePath("temp");
     p.tokenizerPath = QDir(p.modelsRoot).filePath("qwen/Qwen3-TTS-Tokenizer-12Hz");
     p.modelPath = QDir(p.modelsRoot).filePath("qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice");
+    p.fastModelPath = QDir(p.modelsRoot).filePath("qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice");
     p.backendPackageRoot = QDir(p.repoRoot).filePath("backend");
     p.backendCliPath = QDir(p.backendPackageRoot).filePath("local_computer_speech_backend/cli.py");
     p.backendPythonExe = QDir(p.pythonEnvRoot).filePath("Scripts/python.exe");
@@ -87,18 +88,20 @@ void TestBackendBridge::startSynthesisContinuesAfterInstallerSucceeds() {
 
     const QByteArray backendScript =
         "#!/usr/bin/env bash\n"
-        "request_file=\"${@: -1}\"\n"
-        "output_path=$(sed -n 's/.*\"output_path\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' \"$request_file\" | head -n1)\n"
-        "mkdir -p \"$(dirname \"$output_path\")\"\n"
-        "touch \"$output_path\"\n"
-        "echo \"{\\\"ok\\\":true,\\\"output_path\\\":\\\"$output_path\\\",\\\"sample_rate\\\":24000,\\\"speaker\\\":\\\"Ryan\\\",\\\"language\\\":\\\"English\\\",\\\"elapsed_ms\\\":5,\\\"device\\\":\\\"cpu\\\",\\\"error\\\":\\\"\\\"}\"\n";
+        "echo \"READY\"\n"
+        "while IFS= read -r request_file; do\n"
+        "  output_path=$(sed -n 's/.*\"output_path\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' \"$request_file\" | head -n1)\n"
+        "  mkdir -p \"$(dirname \"$output_path\")\"\n"
+        "  touch \"$output_path\"\n"
+        "  echo \"{\\\"ok\\\":true,\\\"output_path\\\":\\\"$output_path\\\",\\\"sample_rate\\\":24000,\\\"speaker\\\":\\\"Ryan\\\",\\\"language\\\":\\\"English\\\",\\\"elapsed_ms\\\":5,\\\"device\\\":\\\"cpu\\\",\\\"profile\\\":\\\"hq_qwen_1_7b_customvoice\\\",\\\"error\\\":\\\"\\\"}\"\n"
+        "done\n";
     writeExecutableScript(paths.backendPythonExe, backendScript);
 
     auto installer = std::make_shared<FakeInstaller>(fakeSox);
     BackendBridge bridge(installer);
     QSignalSpy completedSpy(&bridge, &BackendBridge::synthesisCompleted);
 
-    QVERIFY(bridge.startSynthesis("hello world"));
+    QVERIFY(bridge.startSynthesis("hello world", "hq"));
     QVERIFY(completedSpy.wait(5000));
 
     const auto args = completedSpy.takeFirst();
@@ -127,21 +130,23 @@ void TestBackendBridge::nonZeroBackendExitIncludesBackendJsonError() {
 
     const QByteArray backendScript =
         "#!/usr/bin/env bash\n"
-        "echo \"{\\\"ok\\\":false,\\\"output_path\\\":\\\"\\\",\\\"sample_rate\\\":0,\\\"speaker\\\":\\\"Ryan\\\",\\\"language\\\":\\\"English\\\",\\\"elapsed_ms\\\":1,\\\"device\\\":\\\"\\\",\\\"error\\\":\\\"Synthesis failed: got an unexpected keyword argument 'dtype'\\\"}\"\n"
-        "exit 1\n";
+        "echo \"READY\"\n"
+        "while IFS= read -r _request_file; do\n"
+        "  echo \"{\\\"ok\\\":false,\\\"output_path\\\":\\\"\\\",\\\"sample_rate\\\":0,\\\"speaker\\\":\\\"Ryan\\\",\\\"language\\\":\\\"English\\\",\\\"elapsed_ms\\\":1,\\\"device\\\":\\\"\\\",\\\"profile\\\":\\\"hq_qwen_1_7b_customvoice\\\",\\\"error\\\":\\\"Synthesis failed: got an unexpected keyword argument 'dtype'\\\"}\"\n"
+        "done\n";
     writeExecutableScript(paths.backendPythonExe, backendScript);
 
     auto installer = std::make_shared<FakeInstaller>(fakeSox);
     BackendBridge bridge(installer);
     QSignalSpy completedSpy(&bridge, &BackendBridge::synthesisCompleted);
 
-    QVERIFY(bridge.startSynthesis("hello world"));
+    QVERIFY(bridge.startSynthesis("hello world", "hq"));
     QVERIFY(completedSpy.wait(5000));
 
     const auto args = completedSpy.takeFirst();
     const SynthResult result = args.at(0).value<SynthResult>();
     QVERIFY(!result.ok);
-    QVERIFY(result.error.contains("non-zero exit (1)"));
+    QVERIFY(result.error.contains("unexpected keyword argument 'dtype'"));
     QVERIFY(result.error.contains("unexpected keyword argument 'dtype'"));
 }
 

@@ -43,12 +43,16 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
         self.paths = types.SimpleNamespace(
             model_dir=root / "models" / "qwen-model",
             tokenizer_dir=root / "models" / "qwen-tokenizer",
+            models_root=root / "models",
             output=root / "output",
             large_data_root=root,
         )
         self.paths.model_dir.mkdir(parents=True, exist_ok=True)
         self.paths.tokenizer_dir.mkdir(parents=True, exist_ok=True)
         self.paths.output.mkdir(parents=True, exist_ok=True)
+        (self.paths.models_root / "qwen" / "Qwen3-TTS-12Hz-1.7B-CustomVoice").mkdir(parents=True, exist_ok=True)
+        (self.paths.models_root / "qwen" / "Qwen3-TTS-12Hz-0.6B-CustomVoice").mkdir(parents=True, exist_ok=True)
+        (self.paths.models_root / "qwen" / "Qwen3-TTS-Tokenizer-12Hz").mkdir(parents=True, exist_ok=True)
 
         self.request_path = root / "request.json"
         self.request_payload = {
@@ -57,6 +61,7 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
             "speaker": "Ryan",
             "language": "English",
             "instruct": "",
+            "profile": "hq_qwen_1_7b_customvoice",
         }
         self.request_path.write_text(json.dumps(self.request_payload), encoding="utf-8")
 
@@ -71,6 +76,7 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
         )
 
         _FakeQwenModelClass.reset()
+        cli._MODEL_CACHE.clear()
 
     def tearDown(self) -> None:
         self.tempdir.cleanup()
@@ -78,7 +84,7 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
     def _run_synth(self):
         with patch("local_computer_speech_backend.cli.ensure_runtime_dirs", return_value=self.paths), patch(
             "local_computer_speech_backend.cli.choose_runtime_profile",
-            return_value={"device": "cpu", "dtype": "float32"},
+            return_value={"device": "cpu", "dtype": "float32", "attention_backend": "standard"},
         ), patch("local_computer_speech_backend.cli._import_qwen_model_class", return_value=_FakeQwenModelClass), patch(
             "local_computer_speech_backend.cli._normalize_generation_output",
             return_value=([0.1, -0.1], 24000),
@@ -99,7 +105,7 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
         _, kwargs = _FakeQwenModelClass.calls[0]
         self.assertIn("dtype", kwargs)
         self.assertNotIn("torch_dtype", kwargs)
-        self.assertEqual(kwargs["dtype"], "float32")
+        self.assertEqual(kwargs["dtype"], "float16")
         self.assertTrue(kwargs["local_files_only"])
         self.assertTrue(kwargs["trust_remote_code"])
 
@@ -170,7 +176,19 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(
             set(payload.keys()),
-            {"ok", "output_path", "sample_rate", "speaker", "language", "elapsed_ms", "device", "error"},
+            {
+                "ok",
+                "output_path",
+                "sample_rate",
+                "speaker",
+                "language",
+                "elapsed_ms",
+                "device",
+                "attention_backend",
+                "torch_version",
+                "error",
+                "profile",
+            },
         )
 
 
