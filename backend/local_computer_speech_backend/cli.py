@@ -141,12 +141,37 @@ def _is_tokenizer_path_compatibility_error(exc: Exception) -> bool:
     return any(marker in message for marker in keyword_or_deprecation_markers)
 
 
+def _is_attention_implementation_compatibility_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "attn_implementation" not in message and "attention" not in message:
+        return False
+
+    compatibility_markers = (
+        "unsupported",
+        "not support",
+        "not supported",
+        "unexpected keyword",
+        "keyword argument",
+        "signature",
+    )
+    return any(marker in message for marker in compatibility_markers)
+
+
 def _resolve_attention_mode(configured_mode: str | None, runtime_profile: dict) -> str:
-    requested = configured_mode or "standard"
-    if requested in ("flash-attn", "flash_attention_2") and runtime_profile.get("attention_backend") != "flash-attn":
-        _log_event("attention_fallback", requested=requested, resolved="standard")
-        return "standard"
-    return requested
+    requested = configured_mode or "eager"
+    normalized = {
+        "standard": "eager",
+        "flash-attn": "flash_attention_2",
+        "eager": "eager",
+        "sdpa": "sdpa",
+        "flash_attention_2": "flash_attention_2",
+        "flash_attention_3": "flash_attention_3",
+    }.get(requested, requested)
+
+    if normalized in ("flash_attention_2", "flash_attention_3") and runtime_profile.get("attention_backend") != "flash-attn":
+        _log_event("attention_fallback", requested=requested, resolved="eager")
+        return "eager"
+    return normalized
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -257,15 +282,33 @@ def _load_model_for_profile(
                 **kwargs,
             )
 
+    def _load_with_dtype_retry(load_attempt_kwargs: dict):
+        try:
+            return _load_with_tokenizer_retry(**load_attempt_kwargs)
+        except Exception as exc:
+            if not _is_dtype_compatibility_error(exc):
+                raise
+
+            fallback_kwargs = dict(load_attempt_kwargs)
+            fallback_kwargs["torch_dtype"] = fallback_kwargs.pop("dtype")
+            return _load_with_tokenizer_retry(**fallback_kwargs)
+
     try:
-        model = _load_with_tokenizer_retry(**load_kwargs)
+        model = _load_with_dtype_retry(load_kwargs)
     except Exception as exc:
-        if not _is_dtype_compatibility_error(exc):
+        if "attn_implementation" not in load_kwargs or not _is_attention_implementation_compatibility_error(exc):
             raise
 
+        _log_event(
+            "attention_override_retry",
+            profile=profile.profile_name,
+            requested=resolved_attention_mode,
+            resolved="model_default",
+        )
         fallback_kwargs = dict(load_kwargs)
-        fallback_kwargs["torch_dtype"] = fallback_kwargs.pop("dtype")
-        model = _load_with_tokenizer_retry(**fallback_kwargs)
+        fallback_kwargs.pop("attn_implementation", None)
+        model = _load_with_dtype_retry(fallback_kwargs)
+        resolved_attention_mode = "model_default"
 
     runtime = ModelRuntime(
         model=model,
@@ -296,7 +339,7 @@ def _build_synth_payload(request_json: str) -> tuple[int, dict]:
             language="English",
             elapsed_ms=0,
             device="",
-            attention_backend="standard",
+            attention_backend="eager",
             torch_version="",
             error=f"Request JSON file does not exist: {request_path}",
             profile="hq_qwen_1_7b_customvoice",
@@ -313,7 +356,7 @@ def _build_synth_payload(request_json: str) -> tuple[int, dict]:
             language="English",
             elapsed_ms=0,
             device="",
-            attention_backend="standard",
+            attention_backend="eager",
             torch_version="",
             error=f"Failed to read request JSON: {exc}",
             profile="hq_qwen_1_7b_customvoice",
@@ -340,7 +383,7 @@ def _build_synth_payload(request_json: str) -> tuple[int, dict]:
             language=language,
             elapsed_ms=0,
             device="",
-            attention_backend="standard",
+            attention_backend="eager",
             torch_version="",
             error="Input text is empty after trimming.",
             profile=profile.profile_name,
@@ -357,7 +400,7 @@ def _build_synth_payload(request_json: str) -> tuple[int, dict]:
             language=language,
             elapsed_ms=0,
             device="",
-            attention_backend="standard",
+            attention_backend="eager",
             torch_version="",
             error="output_path is required in request JSON.",
             profile=profile.profile_name,
@@ -377,7 +420,7 @@ def _build_synth_payload(request_json: str) -> tuple[int, dict]:
             language=language,
             elapsed_ms=0,
             device="",
-            attention_backend="standard",
+            attention_backend="eager",
             torch_version="",
             error=(
                 f"Model assets are missing for profile {profile.profile_name}. "
@@ -468,7 +511,7 @@ def _build_synth_payload(request_json: str) -> tuple[int, dict]:
             language=language,
             elapsed_ms=elapsed_ms,
             device="",
-            attention_backend=str(runtime_profile.get("attention_backend", "standard")),
+            attention_backend=_resolve_attention_mode(profile.attention_mode, runtime_profile),
             torch_version=str(runtime_profile.get("torch_version") or ""),
             error=f"Synthesis failed: {exc}",
             profile=profile.profile_name,

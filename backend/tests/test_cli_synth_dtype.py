@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from local_computer_speech_backend import cli
+from local_computer_speech_backend.synth_profiles import SynthProfileConfig
 
 
 class _FakeModel:
@@ -81,10 +82,26 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
-    def _run_synth(self):
+    def _run_synth(self, *, runtime_profile: dict | None = None, profile: SynthProfileConfig | None = None):
+        runtime_profile = runtime_profile or {"device": "cpu", "dtype": "float32", "attention_backend": "standard"}
+        profile = profile or SynthProfileConfig(
+            profile_name="hq_qwen_1_7b_customvoice",
+            model_id="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+            model_path=self.paths.models_root / "qwen" / "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+            tokenizer_path=self.paths.models_root / "qwen" / "Qwen3-TTS-Tokenizer-12Hz",
+            preferred_dtype="float16",
+            attention_mode=None,
+            speaker="Ryan",
+            instruction="",
+            max_chunk_chars=520,
+            use_case_label="high_quality_narration",
+        )
         with patch("local_computer_speech_backend.cli.ensure_runtime_dirs", return_value=self.paths), patch(
             "local_computer_speech_backend.cli.choose_runtime_profile",
-            return_value={"device": "cpu", "dtype": "float32", "attention_backend": "standard"},
+            return_value=runtime_profile,
+        ), patch(
+            "local_computer_speech_backend.cli.resolve_profile",
+            return_value=profile,
         ), patch("local_computer_speech_backend.cli._import_qwen_model_class", return_value=_FakeQwenModelClass), patch(
             "local_computer_speech_backend.cli._normalize_generation_output",
             return_value=([0.1, -0.1], 24000),
@@ -190,6 +207,48 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
                 "profile",
             },
         )
+
+    def test_resolve_attention_mode_maps_standard_to_eager(self) -> None:
+        resolved = cli._resolve_attention_mode("standard", {"attention_backend": "standard"})
+        self.assertEqual(resolved, "eager")
+
+    def test_flash_requested_without_flash_backend_falls_back_to_eager(self) -> None:
+        profile = SynthProfileConfig(
+            profile_name="hq_qwen_1_7b_customvoice",
+            model_id="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+            model_path=self.paths.models_root / "qwen" / "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+            tokenizer_path=self.paths.models_root / "qwen" / "Qwen3-TTS-Tokenizer-12Hz",
+            preferred_dtype="float16",
+            attention_mode="flash-attn",
+            speaker="Ryan",
+            instruction="",
+            max_chunk_chars=520,
+            use_case_label="high_quality_narration",
+        )
+
+        rc, payload = self._run_synth(profile=profile)
+
+        self.assertEqual(rc, 0)
+        self.assertTrue(payload["ok"])
+        _, kwargs = _FakeQwenModelClass.calls[0]
+        self.assertEqual(kwargs["attn_implementation"], "eager")
+        self.assertEqual(payload["attention_backend"], "eager")
+
+    def test_retry_without_attn_implementation_when_model_rejects_it(self) -> None:
+        _FakeQwenModelClass.errors_by_call_index = {
+            1: TypeError("from_pretrained() got an unexpected keyword argument 'attn_implementation'"),
+        }
+
+        rc, payload = self._run_synth()
+
+        self.assertEqual(rc, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(_FakeQwenModelClass.calls), 2)
+        _, first_kwargs = _FakeQwenModelClass.calls[0]
+        _, second_kwargs = _FakeQwenModelClass.calls[1]
+        self.assertIn("attn_implementation", first_kwargs)
+        self.assertNotIn("attn_implementation", second_kwargs)
+        self.assertEqual(payload["attention_backend"], "model_default")
 
 
 if __name__ == "__main__":
