@@ -22,7 +22,6 @@ struct SynthResult {
     QString language;
     qint64 elapsedMs = 0;
     QString device;
-    QString profile;
     QString error;
 };
 
@@ -35,7 +34,7 @@ public:
 
     QString quickStatusSummary() const;
     bool isSynthesisInProgress() const;
-    bool startSynthesis(const QString& text, const QString& profileName);
+    bool startSynthesis(const QString& text);
 
 // QT_NO_KEYWORDS is enabled project-wide, so use macro-safe Qt signal syntax.
 Q_SIGNALS:
@@ -44,19 +43,12 @@ Q_SIGNALS:
 
 private:
     void finishWithError(const QString& error);
-    QString buildOutputFileName(const QString& profileName) const;
-    bool ensureWorkerStarted();
-    void handleWorkerStdout();
-    void handleWorkerFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    QString buildOutputFileName() const;
 
     std::shared_ptr<SoxInstaller> m_soxInstaller;
     QProcess* m_process;
     QString m_stdoutBuffer;
     QString m_stderrBuffer;
-    QString m_pendingOutputPath;
-    QString m_pendingProfile;
-    QString m_soxExePath;
-    bool m_synthesisInProgress = false;
 };
 
 } // namespace lcs

@@ -23,7 +23,6 @@ from pathlib import Path
 repos = [
     "Qwen/Qwen3-TTS-Tokenizer-12Hz",
     "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-    "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
 ]
 base = Path(r"__TARGET_ROOT__")
 base.mkdir(parents=True, exist_ok=True)

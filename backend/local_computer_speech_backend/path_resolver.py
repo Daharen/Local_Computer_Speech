@@ -16,7 +16,6 @@ class BackendPaths:
     runtime: Path
     output: Path
     temp: Path
-    models_root: Path
     tokenizer_dir: Path
     model_dir: Path
 
@@ -33,7 +32,6 @@ def resolve_paths() -> BackendPaths:
         runtime=large_data_root / "runtime",
         output=large_data_root / "output",
         temp=large_data_root / "temp",
-        models_root=models_root,
         tokenizer_dir=models_root / "qwen" / "Qwen3-TTS-Tokenizer-12Hz",
         model_dir=models_root / "qwen" / "Qwen3-TTS-12Hz-1.7B-CustomVoice",
     )

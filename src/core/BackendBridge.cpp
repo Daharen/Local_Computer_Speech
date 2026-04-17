@@ -16,30 +16,24 @@
 #include <memory>
 
 namespace {
-QByteArray extractJsonLine(QString& buffer) {
-    const int newline = buffer.indexOf('\n');
-    if (newline < 0) {
-        return {};
+QByteArray findJsonPayload(const QString& stdoutText) {
+    const auto lines = stdoutText.split('\n');
+    for (auto it = lines.crbegin(); it != lines.crend(); ++it) {
+        const QString line = it->trimmed();
+        if (line.startsWith('{') && line.endsWith('}')) {
+            return line.toUtf8();
+        }
     }
 
-    const QString line = buffer.left(newline).trimmed();
-    buffer = buffer.mid(newline + 1);
-    if (line.startsWith('{') && line.endsWith('}')) {
-        return line.toUtf8();
+    const int start = stdoutText.indexOf('{');
+    const int end = stdoutText.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+        return stdoutText.mid(start, end - start + 1).toUtf8();
     }
+
     return {};
 }
 
-QString mapProfileLabelToConfig(const QString& profileLabel) {
-    if (profileLabel == "fast") {
-        return QStringLiteral("fast_qwen_0_6b_customvoice");
-    }
-    return QStringLiteral("hq_qwen_1_7b_customvoice");
-}
-
-QString profilePrefix(const QString& profileName) {
-    return profileName.startsWith("fast") ? QStringLiteral("fast") : QStringLiteral("hq");
-}
 } // namespace
 
 namespace lcs {
@@ -67,7 +61,7 @@ QString BackendBridge::quickStatusSummary() const {
 
     if (!hasTokenizer || !hasModel) {
         return QStringLiteral(
-            "HQ model/tokenizer missing. Run run.ps1 -InstallModel to install tokenizer + models into large-data root.");
+            "Model assets missing. Run run.ps1 -InstallModel to install tokenizer + model into large-data root.");
     }
 
     if (!soxProbe.available) {
@@ -77,181 +71,35 @@ QString BackendBridge::quickStatusSummary() const {
     }
 
     return QStringLiteral(
-               "Backend bridge ready: profile-driven synthesis enabled (HQ/Fast). SoX source: %1.")
+               "Backend bridge ready: local model/tokenizer paths found in persistent large-data root. "
+               "SoX source: %1.")
         .arg(soxProbe.source);
 }
 
 bool BackendBridge::isSynthesisInProgress() const {
-    return m_synthesisInProgress;
+    return m_process != nullptr;
 }
 
-QString BackendBridge::buildOutputFileName(const QString& profileName) const {
-    const auto stamp = QDateTime::currentDateTimeUtc().toString("yyyyMMdd_HHmmss");
-    return QStringLiteral("tts_%1_%2.wav").arg(profilePrefix(profileName), stamp);
+QString BackendBridge::buildOutputFileName() const {
+    const auto stamp = QDateTime::currentDateTimeUtc().toString("yyyyMMdd_HHmmss_zzz");
+    return QStringLiteral("tts_%1.wav").arg(stamp);
 }
 
 void BackendBridge::finishWithError(const QString& error) {
     SynthResult result;
     result.ok = false;
     result.error = error;
-    result.profile = m_pendingProfile;
-    m_synthesisInProgress = false;
     Q_EMIT synthesisCompleted(result);
 }
 
-bool BackendBridge::ensureWorkerStarted() {
-    if (m_process) {
-        return true;
-    }
-
-    const auto paths = PathResolver::resolve();
-
-    m_process = new QProcess(this);
-    m_stdoutBuffer.clear();
-    m_stderrBuffer.clear();
-
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    if (!m_soxExePath.isEmpty()) {
-        const QString soxDir = QFileInfo(m_soxExePath).absolutePath();
-        const QString existingPath = env.value("PATH");
-        if (existingPath.isEmpty()) {
-            env.insert("PATH", soxDir);
-        } else {
-            env.insert("PATH", soxDir + QDir::listSeparator() + existingPath);
-        }
-    }
-    const QString existingPyPath = env.value("PYTHONPATH");
-    if (existingPyPath.isEmpty()) {
-        env.insert("PYTHONPATH", paths.backendPackageRoot);
-    } else {
-        env.insert("PYTHONPATH", paths.backendPackageRoot + ";" + existingPyPath);
-    }
-    m_process->setProcessEnvironment(env);
-
-    connect(m_process, &QProcess::readyReadStandardOutput, this, [this]() { handleWorkerStdout(); });
-    connect(m_process, &QProcess::readyReadStandardError, this, [this]() {
-        m_stderrBuffer += QString::fromUtf8(m_process->readAllStandardError());
-    });
-    connect(m_process,
-            qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
-            this,
-            [this](int exitCode, QProcess::ExitStatus exitStatus) {
-                handleWorkerFinished(exitCode, exitStatus);
-            });
-
-    const QStringList args = {
-        "-m",
-        "local_computer_speech_backend.cli",
-        "serve",
-    };
-    m_process->start(paths.backendPythonExe, args);
-
-    if (!m_process->waitForStarted(3000)) {
-        std::unique_ptr<QProcess> processGuard(m_process);
-        m_process = nullptr;
-        finishWithError(QStringLiteral("Failed to start backend worker: %1").arg(processGuard->errorString()));
-        return false;
-    }
-
-    if (!m_process->waitForReadyRead(3000)) {
-        finishWithError("Backend worker did not report readiness.");
-        return false;
-    }
-
-    handleWorkerStdout();
-    return true;
-}
-
-void BackendBridge::handleWorkerStdout() {
-    if (!m_process) {
-        return;
-    }
-
-    m_stdoutBuffer += QString::fromUtf8(m_process->readAllStandardOutput());
-    while (true) {
-        if (m_stdoutBuffer.startsWith("READY")) {
-            const int nl = m_stdoutBuffer.indexOf('\n');
-            if (nl >= 0) {
-                m_stdoutBuffer = m_stdoutBuffer.mid(nl + 1);
-                continue;
-            }
-        }
-
-        const QByteArray jsonPayload = extractJsonLine(m_stdoutBuffer);
-        if (jsonPayload.isEmpty()) {
-            break;
-        }
-
-        QJsonParseError parseError{};
-        const auto jsonDoc = QJsonDocument::fromJson(jsonPayload, &parseError);
-        if (parseError.error != QJsonParseError::NoError || !jsonDoc.isObject()) {
-            finishWithError(
-                QStringLiteral("Malformed backend JSON response. stdout: %1 stderr: %2")
-                    .arg(QString::fromUtf8(jsonPayload), m_stderrBuffer.trimmed()));
-            return;
-        }
-
-        const auto obj = jsonDoc.object();
-        SynthResult result;
-        result.ok = obj.value("ok").toBool(false);
-        result.outputPath = obj.value("output_path").toString();
-        result.sampleRate = obj.value("sample_rate").toInt(0);
-        result.speaker = obj.value("speaker").toString();
-        result.language = obj.value("language").toString();
-        result.elapsedMs = static_cast<qint64>(obj.value("elapsed_ms").toDouble(0));
-        result.device = obj.value("device").toString();
-        result.profile = obj.value("profile").toString(m_pendingProfile);
-        result.error = obj.value("error").toString();
-
-        m_synthesisInProgress = false;
-
-        if (!result.ok) {
-            if (result.error.isEmpty()) {
-                result.error = "Backend reported synthesis failure with no error message.";
-            }
-            Q_EMIT synthesisCompleted(result);
-            continue;
-        }
-
-        const QString expectedPath = result.outputPath.isEmpty() ? m_pendingOutputPath : result.outputPath;
-        if (!QFileInfo::exists(QDir::fromNativeSeparators(expectedPath))) {
-            result.ok = false;
-            result.error = QStringLiteral("Backend reported success but output file is missing: %1")
-                               .arg(expectedPath);
-            Q_EMIT synthesisCompleted(result);
-            continue;
-        }
-
-        result.outputPath = QDir::toNativeSeparators(expectedPath);
-        Q_EMIT synthesisCompleted(result);
-    }
-}
-
-void BackendBridge::handleWorkerFinished(int exitCode, QProcess::ExitStatus exitStatus) {
-    std::unique_ptr<QProcess> processGuard(m_process);
-    m_process = nullptr;
-
-    if (m_synthesisInProgress) {
-        m_synthesisInProgress = false;
-        if (exitStatus != QProcess::NormalExit) {
-            finishWithError("Backend worker crashed before completing synthesis.");
-            return;
-        }
-        finishWithError(
-            QStringLiteral("Backend worker exited unexpectedly (%1): %2")
-                .arg(exitCode)
-                .arg(m_stderrBuffer.trimmed()));
-    }
-}
-
-bool BackendBridge::startSynthesis(const QString& text, const QString& profileName) {
+bool BackendBridge::startSynthesis(const QString& text) {
     const QString trimmedText = text.trimmed();
     if (trimmedText.isEmpty()) {
         finishWithError("Input text is empty. Please type text before synthesizing.");
         return false;
     }
 
-    if (m_synthesisInProgress) {
+    if (m_process) {
         finishWithError("Synthesis is already running. Please wait for the current request to finish.");
         return false;
     }
@@ -264,11 +112,11 @@ bool BackendBridge::startSynthesis(const QString& text, const QString& profileNa
     }
 
     const InstallResult soxInstall = m_soxInstaller->ensureSoxAvailable(paths);
+
     if (!soxInstall.ok) {
         finishWithError(QStringLiteral("SoX bootstrap failed: %1").arg(soxInstall.error));
         return false;
     }
-    m_soxExePath = soxInstall.soxExePath;
 
     QDir().mkpath(paths.outputRoot);
     QDir().mkpath(paths.runtimeRoot);
@@ -282,8 +130,7 @@ bool BackendBridge::startSynthesis(const QString& text, const QString& profileNa
                 .arg(QDateTime::currentDateTimeUtc().toString("yyyyMMdd_HHmmss_zzz"))
                 .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
 
-    const QString profileConfigName = mapProfileLabelToConfig(profileName);
-    const QString outputPath = QDir(paths.outputRoot).filePath(buildOutputFileName(profileConfigName));
+    const QString outputPath = QDir(paths.outputRoot).filePath(buildOutputFileName());
 
     QJsonObject requestObj{
         {"text", trimmedText},
@@ -291,7 +138,6 @@ bool BackendBridge::startSynthesis(const QString& text, const QString& profileNa
         {"language", "English"},
         {"speaker", "Ryan"},
         {"instruct", ""},
-        {"profile", profileConfigName},
     };
 
     QFile requestFile(requestFilePath);
@@ -302,17 +148,138 @@ bool BackendBridge::startSynthesis(const QString& text, const QString& profileNa
     requestFile.write(QJsonDocument(requestObj).toJson(QJsonDocument::Indented));
     requestFile.close();
 
-    if (!ensureWorkerStarted()) {
-        return false;
+    m_process = new QProcess(this);
+    m_stdoutBuffer.clear();
+    m_stderrBuffer.clear();
+
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    const QString soxDir = QFileInfo(soxInstall.soxExePath).absolutePath();
+    const QString existingPath = env.value("PATH");
+    if (existingPath.isEmpty()) {
+        env.insert("PATH", soxDir);
+    } else {
+        env.insert("PATH", soxDir + QDir::listSeparator() + existingPath);
     }
 
-    m_pendingOutputPath = outputPath;
-    m_pendingProfile = profileConfigName;
-    m_synthesisInProgress = true;
+    const QString existingPyPath = env.value("PYTHONPATH");
+    if (existingPyPath.isEmpty()) {
+        env.insert("PYTHONPATH", paths.backendPackageRoot);
+    } else {
+        env.insert("PYTHONPATH", paths.backendPackageRoot + ";" + existingPyPath);
+    }
+    m_process->setProcessEnvironment(env);
+
+    connect(m_process, &QProcess::readyReadStandardOutput, this, [this]() {
+        m_stdoutBuffer += QString::fromUtf8(m_process->readAllStandardOutput());
+    });
+    connect(m_process, &QProcess::readyReadStandardError, this, [this]() {
+        m_stderrBuffer += QString::fromUtf8(m_process->readAllStandardError());
+    });
+
+    connect(m_process,
+            qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+            this,
+            [this, outputPath](int exitCode, QProcess::ExitStatus exitStatus) {
+                std::unique_ptr<QProcess> processGuard(m_process);
+                m_process = nullptr;
+
+                const QByteArray jsonPayload = findJsonPayload(m_stdoutBuffer);
+                QJsonParseError parseError{};
+                const auto jsonDoc = QJsonDocument::fromJson(jsonPayload, &parseError);
+
+                if (exitStatus != QProcess::NormalExit) {
+                    finishWithError("Backend process crashed before completing synthesis.");
+                    return;
+                }
+
+                if (exitCode != 0) {
+                    QString backendError;
+                    if (!jsonPayload.isEmpty() && parseError.error == QJsonParseError::NoError &&
+                        jsonDoc.isObject()) {
+                        backendError = jsonDoc.object().value("error").toString().trimmed();
+                    }
+
+                    const QString stderrText = m_stderrBuffer.trimmed();
+                    if (!backendError.isEmpty()) {
+                        if (stderrText.isEmpty()) {
+                            finishWithError(
+                                QStringLiteral("Backend returned non-zero exit (%1): %2")
+                                    .arg(exitCode)
+                                    .arg(backendError));
+                        } else {
+                            finishWithError(
+                                QStringLiteral("Backend returned non-zero exit (%1): %2 (stderr: %3)")
+                                    .arg(exitCode)
+                                    .arg(backendError)
+                                    .arg(stderrText));
+                        }
+                    } else {
+                        finishWithError(
+                            QStringLiteral("Backend returned non-zero exit (%1): %2")
+                                .arg(exitCode)
+                                .arg(stderrText));
+                    }
+                    return;
+                }
+
+                if (jsonPayload.isEmpty() || parseError.error != QJsonParseError::NoError ||
+                    !jsonDoc.isObject()) {
+                    finishWithError(
+                        QStringLiteral("Malformed backend JSON response. stdout: %1 stderr: %2")
+                            .arg(m_stdoutBuffer.trimmed(), m_stderrBuffer.trimmed()));
+                    return;
+                }
+
+                const auto obj = jsonDoc.object();
+                SynthResult result;
+                result.ok = obj.value("ok").toBool(false);
+                result.outputPath = obj.value("output_path").toString();
+                result.sampleRate = obj.value("sample_rate").toInt(0);
+                result.speaker = obj.value("speaker").toString();
+                result.language = obj.value("language").toString();
+                result.elapsedMs = static_cast<qint64>(obj.value("elapsed_ms").toDouble(0));
+                result.device = obj.value("device").toString();
+                result.error = obj.value("error").toString();
+
+                if (!result.ok) {
+                    if (result.error.isEmpty()) {
+                        result.error = "Backend reported synthesis failure with no error message.";
+                    }
+                    Q_EMIT synthesisCompleted(result);
+                    return;
+                }
+
+                const QString expectedPath = result.outputPath.isEmpty() ? outputPath : result.outputPath;
+                if (!QFileInfo::exists(QDir::fromNativeSeparators(expectedPath))) {
+                    result.ok = false;
+                    result.error = QStringLiteral("Backend reported success but output file is missing: %1")
+                                       .arg(expectedPath);
+                    Q_EMIT synthesisCompleted(result);
+                    return;
+                }
+
+                result.outputPath = QDir::toNativeSeparators(expectedPath);
+                Q_EMIT synthesisCompleted(result);
+            });
 
     Q_EMIT synthesisStarted();
-    m_process->write((QDir::toNativeSeparators(requestFilePath) + "\n").toUtf8());
-    m_process->waitForBytesWritten(1000);
+
+    const QStringList args = {
+        "-m",
+        "local_computer_speech_backend.cli",
+        "synth",
+        "--request-json",
+        QDir::toNativeSeparators(requestFilePath),
+    };
+    m_process->start(paths.backendPythonExe, args);
+
+    if (!m_process->waitForStarted(3000)) {
+        std::unique_ptr<QProcess> processGuard(m_process);
+        m_process = nullptr;
+        finishWithError(QStringLiteral("Failed to start backend process: %1")
+                            .arg(processGuard->errorString()));
+        return false;
+    }
 
     return true;
 }
