@@ -5,7 +5,6 @@
 class QLabel;
 class QPushButton;
 class QTextEdit;
-class QComboBox;
 
 namespace lcs {
 
@@ -27,9 +26,7 @@ private:
     QLabel* m_statusValue;
     QTextEdit* m_textInput;
     QPushButton* m_synthButton;
-    QComboBox* m_profileSelector;
     QLabel* m_synthStateValue;
-    QLabel* m_activeProfileValue;
     QLabel* m_outputPathValue;
 };
 

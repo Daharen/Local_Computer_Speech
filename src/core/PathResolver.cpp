@@ -38,7 +38,6 @@ RuntimePaths PathResolver::resolve() {
 
     paths.tokenizerPath = joinPath(paths.modelsRoot, "qwen/Qwen3-TTS-Tokenizer-12Hz");
     paths.modelPath = joinPath(paths.modelsRoot, "qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice");
-    paths.fastModelPath = joinPath(paths.modelsRoot, "qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice");
     paths.backendPackageRoot = joinPath(paths.repoRoot, "backend");
     paths.backendCliPath = joinPath(paths.backendPackageRoot, "local_computer_speech_backend/cli.py");
     paths.backendPythonExe = joinPath(paths.pythonEnvRoot, "Scripts/python.exe");
