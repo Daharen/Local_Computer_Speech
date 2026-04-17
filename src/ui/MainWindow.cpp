@@ -7,6 +7,8 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QComboBox>
+#include <QSettings>
 #include <QTextEdit>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -19,7 +21,9 @@ MainWindow::MainWindow(BackendBridge* backendBridge, QWidget* parent)
       m_statusValue(new QLabel("Not evaluated.")),
       m_textInput(new QTextEdit()),
       m_synthButton(new QPushButton("Synthesize WAV")),
+      m_profileSelector(new QComboBox()),
       m_synthStateValue(new QLabel("Idle.")),
+      m_activeProfileValue(new QLabel("High Quality")),
       m_outputPathValue(new QLabel("(none)")) {
     setWindowTitle("Local Computer Speech");
     resize(920, 620);
@@ -38,12 +42,25 @@ MainWindow::MainWindow(BackendBridge* backendBridge, QWidget* parent)
     controlsLayout->addWidget(m_textInput);
 
     auto* row = new QHBoxLayout();
+    row->addWidget(new QLabel("Synth profile:"));
+    m_profileSelector->addItem("High Quality", "hq");
+    m_profileSelector->addItem("Fast", "fast");
+    QSettings settings("LocalComputerSpeech", "LocalComputerSpeechApp");
+    const QString savedProfile = settings.value("synth/profile", "hq").toString();
+    const int savedIndex = m_profileSelector->findData(savedProfile);
+    if (savedIndex >= 0) {
+        m_profileSelector->setCurrentIndex(savedIndex);
+    }
+    m_activeProfileValue->setText(m_profileSelector->currentText());
+    row->addWidget(m_profileSelector);
     row->addWidget(m_synthButton);
     row->addStretch();
     controlsLayout->addLayout(row);
 
     controlsLayout->addWidget(new QLabel("Synthesis status:"));
     controlsLayout->addWidget(m_synthStateValue);
+    controlsLayout->addWidget(new QLabel("Active profile:"));
+    controlsLayout->addWidget(m_activeProfileValue);
     controlsLayout->addWidget(new QLabel("Last output WAV path:"));
     controlsLayout->addWidget(m_outputPathValue);
 
@@ -74,7 +91,12 @@ MainWindow::MainWindow(BackendBridge* backendBridge, QWidget* parent)
             return;
         }
 
-        if (!m_backendBridge->startSynthesis(text)) {
+        const QString profile = m_profileSelector->currentData().toString();
+        QSettings settings("LocalComputerSpeech", "LocalComputerSpeechApp");
+        settings.setValue("synth/profile", profile);
+        m_activeProfileValue->setText(m_profileSelector->currentText());
+
+        if (!m_backendBridge->startSynthesis(text, profile)) {
             m_synthButton->setEnabled(true);
         }
     });
@@ -100,7 +122,8 @@ void MainWindow::onSynthesisCompleted(const lcs::SynthResult& result) {
 
     if (result.ok) {
         m_synthStateValue->setText(
-            QStringLiteral("Success. %1 Hz on %2 (%3 ms)")
+            QStringLiteral("Success (%1). %2 Hz on %3 (%4 ms)")
+                .arg(result.profile.isEmpty() ? QStringLiteral("unknown profile") : result.profile)
                 .arg(result.sampleRate)
                 .arg(result.device.isEmpty() ? QStringLiteral("unknown device") : result.device)
                 .arg(result.elapsedMs));
