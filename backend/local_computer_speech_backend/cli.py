@@ -346,7 +346,7 @@ def _build_synth_payload(request_json: str) -> tuple[int, dict]:
         )
 
     try:
-        request = json.loads(request_path.read_text(encoding="utf-8"))
+        request = json.loads(request_path.read_text(encoding="utf-8-sig"))
     except Exception as exc:
         return 1, _emit_synth_response(
             ok=False,
@@ -447,6 +447,13 @@ def _build_synth_payload(request_json: str) -> tuple[int, dict]:
         first_chunk_end = None
 
         for index, chunk in enumerate(chunks):
+            chunk_start = time.perf_counter()
+            _log_event(
+                "chunk_generation_start",
+                profile=profile.profile_name,
+                chunk_index=index + 1,
+                chunk_total=len(chunks),
+            )
             if index == 0:
                 first_chunk_start = time.perf_counter()
                 _log_event("first_chunk_generation_start", profile=profile.profile_name)
@@ -458,6 +465,12 @@ def _build_synth_payload(request_json: str) -> tuple[int, dict]:
             )
             audio, sample_rate = _normalize_generation_output(generation)
             audio_parts.append(audio)
+            _log_event(
+                "chunk_generation_end",
+                profile=profile.profile_name,
+                chunk_index=index + 1,
+                elapsed_sec=round(time.perf_counter() - chunk_start, 3),
+            )
             if index == 0:
                 first_chunk_end = time.perf_counter()
                 _log_event("first_chunk_generation_end", profile=profile.profile_name)
@@ -537,6 +550,25 @@ def cmd_serve() -> int:
     return 0
 
 
+def cmd_probe_profile(profile_name: str) -> int:
+    paths = ensure_runtime_dirs()
+    profile = resolve_profile(paths, profile_name)
+
+    payload = {
+        "profile": profile.profile_name,
+        "supported_speakers": [profile.speaker],
+        "supported_languages": ["English"],
+    }
+    _log_event(
+        "profile_probe",
+        profile=profile.profile_name,
+        supported_speakers=payload["supported_speakers"],
+        supported_languages=payload["supported_languages"],
+    )
+    print(json.dumps(payload, ensure_ascii=False))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Local Computer Speech backend bridge CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -547,6 +579,8 @@ def build_parser() -> argparse.ArgumentParser:
     synth.add_argument("--request-json", required=True, help="Path to synthesis request JSON")
 
     sub.add_parser("serve", help="Start persistent backend worker over stdin/stdout")
+    probe = sub.add_parser("probe-profile", help="Show supported speakers/languages for a profile")
+    probe.add_argument("--profile", default="hq_qwen_1_7b_customvoice", help="Profile name to probe")
 
     return parser
 
@@ -563,6 +597,9 @@ def main() -> int:
 
     if args.command == "serve":
         return cmd_serve()
+
+    if args.command == "probe-profile":
+        return cmd_probe_profile(profile_name=args.profile)
 
     parser.error("Unhandled command")
     return 1

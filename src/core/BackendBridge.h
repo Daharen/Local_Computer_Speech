@@ -46,6 +46,7 @@ private:
     void finishWithError(const QString& error);
     QString buildOutputFileName(const QString& profileName) const;
     bool ensureWorkerStarted();
+    void resetWorkerState();
     void handleWorkerStdout();
     void handleWorkerFinished(int exitCode, int exitStatus);
 
