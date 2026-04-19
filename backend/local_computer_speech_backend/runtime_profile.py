@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 
 
 def _flash_attention_available() -> bool:
@@ -18,6 +19,9 @@ def choose_runtime_profile() -> dict:
       - do not hard-require FlashAttention-2
       - reserve optimization seam for future attention backends
     """
+    forced_device_raw = os.environ.get("LCS_FORCE_DEVICE", "").strip().lower()
+    forced_device = forced_device_raw if forced_device_raw in {"cpu", "cuda"} else None
+
     device = "cpu"
     dtype = "float32"
     attention_backend = "standard"
@@ -50,6 +54,24 @@ def choose_runtime_profile() -> dict:
     except Exception:
         pass
 
+    force_reason = None
+    if forced_device == "cpu":
+        device = "cpu"
+        dtype = "float32"
+        attention_backend = "standard"
+        force_reason = "LCS_FORCE_DEVICE=cpu"
+    elif forced_device == "cuda":
+        if cuda_available:
+            device = "cuda"
+            dtype = "float16"
+            if _flash_attention_available():
+                attention_backend = "flash-attn"
+            else:
+                attention_backend = "standard"
+            force_reason = "LCS_FORCE_DEVICE=cuda"
+        else:
+            force_reason = "LCS_FORCE_DEVICE=cuda (ignored: cuda unavailable)"
+
     return {
         "device": device,
         "dtype": dtype,
@@ -60,4 +82,6 @@ def choose_runtime_profile() -> dict:
         "torch_cuda_build": torch_cuda_build,
         "device_count": device_count,
         "device_name_0": device_name_0,
+        "force_device": forced_device,
+        "force_device_reason": force_reason,
     }

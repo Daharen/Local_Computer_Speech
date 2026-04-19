@@ -40,6 +40,16 @@ QString mapProfileLabelToConfig(const QString& profileLabel) {
 QString profilePrefix(const QString& profileName) {
     return profileName.startsWith("fast") ? QStringLiteral("fast") : QStringLiteral("hq");
 }
+
+bool containsCudaAssertMarker(const QString& text) {
+    const QString lowered = text.toLower();
+    return lowered.contains("device-side assert") || lowered.contains("tensorcompare.cu") ||
+           lowered.contains("assertion");
+}
+
+QString condensedCudaAssertFailure() {
+    return QStringLiteral("Backend GPU worker crashed (CUDA assert). Worker reset required; retry after adjusting input/model settings.");
+}
 } // namespace
 
 namespace lcs {
@@ -97,6 +107,20 @@ void BackendBridge::finishWithError(const QString& error) {
     result.profile = m_pendingProfile;
     m_synthesisInProgress = false;
     Q_EMIT synthesisCompleted(result);
+}
+
+void BackendBridge::resetWorkerState() {
+    if (m_process) {
+        m_process->kill();
+        m_process->waitForFinished(1500);
+        m_process->deleteLater();
+        m_process = nullptr;
+    }
+    m_stdoutBuffer.clear();
+    m_stderrBuffer.clear();
+    m_pendingOutputPath.clear();
+    m_pendingProfile.clear();
+    m_synthesisInProgress = false;
 }
 
 bool BackendBridge::ensureWorkerStarted() {
@@ -208,6 +232,9 @@ void BackendBridge::handleWorkerStdout() {
         if (!result.ok) {
             if (result.error.isEmpty()) {
                 result.error = "Backend reported synthesis failure with no error message.";
+            } else if (containsCudaAssertMarker(result.error) || containsCudaAssertMarker(m_stderrBuffer)) {
+                result.error = condensedCudaAssertFailure();
+                resetWorkerState();
             }
             Q_EMIT synthesisCompleted(result);
             continue;
@@ -233,6 +260,10 @@ void BackendBridge::handleWorkerFinished(int exitCode, int exitStatus) {
 
     if (m_synthesisInProgress) {
         m_synthesisInProgress = false;
+        if (containsCudaAssertMarker(m_stderrBuffer)) {
+            finishWithError(condensedCudaAssertFailure());
+            return;
+        }
         if (exitStatus != static_cast<int>(QProcess::NormalExit)) {
             finishWithError("Backend worker crashed before completing synthesis.");
             return;

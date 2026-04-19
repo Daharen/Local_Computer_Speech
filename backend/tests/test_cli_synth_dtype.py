@@ -250,6 +250,26 @@ class TestCliSynthDtypeCompatibility(unittest.TestCase):
         self.assertNotIn("attn_implementation", second_kwargs)
         self.assertEqual(payload["attention_backend"], "model_default")
 
+    def test_request_json_with_utf8_bom_is_accepted(self) -> None:
+        self.request_path.write_text("\ufeff" + json.dumps(self.request_payload), encoding="utf-8")
+
+        rc, payload = self._run_synth()
+
+        self.assertEqual(rc, 0)
+        self.assertTrue(payload["ok"])
+
+    def test_probe_profile_emits_supported_speakers_and_languages(self) -> None:
+        with patch("local_computer_speech_backend.cli.ensure_runtime_dirs", return_value=self.paths):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                rc = cli.cmd_probe_profile("hq_qwen_1_7b_customvoice")
+
+        payload = json.loads(output.getvalue().strip())
+        self.assertEqual(rc, 0)
+        self.assertEqual(payload["profile"], "hq_qwen_1_7b_customvoice")
+        self.assertEqual(payload["supported_speakers"], ["Ryan"])
+        self.assertEqual(payload["supported_languages"], ["English"])
+
 
 if __name__ == "__main__":
     unittest.main()
